@@ -11,6 +11,7 @@
 //!   порог 210, масштаб 26, база 250, сдвиг 2000 (0x466400..0x466418)
 
 pub mod grid;
+#[cfg(feature = "gui")]
 pub mod gui;
 pub mod io;
 pub mod model;

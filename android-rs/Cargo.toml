@@ -10,7 +10,7 @@ path = "src/lib.rs"
 crate-type = ["cdylib"]
 
 [dependencies]
-fold = { path = ".." }
+fold = { path = "..", default-features = false }
 jni = "0.21"
 
 [profile.release]
