@@ -43,6 +43,8 @@ pub struct Settings {
     pub velocity: f64,
     /// Качество изображения, % (Edit3 = 95).
     pub quality: f64,
+    /// Угол структурной карты в градусах (Edit4 = 0).
+    pub angle: f64,
     /// Шаг выборки вдоль профиля, м (0x46742C = 200).
     pub step: f64,
     /// Число узлов карты по X/Y. По умолчанию шаг 200 м на 8000x4000 м.
@@ -55,6 +57,7 @@ impl Default for Settings {
         Self {
             velocity: 1500.0,
             quality: 95.0,
+            angle: 0.0,
             step: 200.0,
             width: (MAP_WIDTH_M / 200.0) as usize + 1, // 41
             height: (MAP_HEIGHT_M / 200.0) as usize + 1, // 21

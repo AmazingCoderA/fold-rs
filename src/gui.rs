@@ -225,6 +225,17 @@ fn edit(ui: &mut egui::Ui, rect: Rect, val: &mut String, id: &'static str) -> bo
     .changed()
 }
 
+fn button(ui: &mut egui::Ui, rect: Rect, label: &str) -> bool {
+    ui.put(
+        rect,
+        egui::Button::new(egui::RichText::new(label).size(11.0).color(Color32::BLACK))
+            .frame(true)
+            .fill(Color32::from_gray(228))
+            .stroke(Stroke::new(1.0_f32, Color32::from_gray(110))),
+    )
+    .clicked()
+}
+
 impl eframe::App for FoldApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if self.dirty {
@@ -253,29 +264,16 @@ impl eframe::App for FoldApp {
                 ],
                 Stroke::new(1.0_f32, Color32::from_gray(180)),
             );
-            let ma = ui.interact(menu, egui::Id::new("menu"), Sense::click());
-            text(ui, px(12.0), py(34.0), "Структура", 12.0, Color32::BLACK);
-            text(ui, px(76.0), py(34.0), "Профили", 12.0, Color32::BLACK);
-            text(
-                ui,
-                px(135.0),
-                py(34.0),
-                "Стереть таблицу",
-                12.0,
-                Color32::BLACK,
-            );
-            if ma.clicked() {
-                if let Some(p) = ma.interact_pointer_pos() {
-                    let x = (p.x - r.min.x) / sx;
-                    if (12.0..76.0).contains(&x) {
-                        self.show_about = !self.show_about;
-                    } else if (76.0..130.0).contains(&x) && !self.profiles.is_empty() {
-                        let next = (self.selected + 1) % self.profiles.len();
-                        self.select_profile(next);
-                    } else if (130.0..215.0).contains(&x) {
-                        self.clear_table();
-                    }
-                }
+            if button(ui, rr(6.0, 24.0, 76.0, 44.0), "Структура") {
+                self.show_about = !self.show_about;
+            }
+            if button(ui, rr(80.0, 24.0, 132.0, 44.0), "Профили") && !self.profiles.is_empty()
+            {
+                let next = (self.selected + 1) % self.profiles.len();
+                self.select_profile(next);
+            }
+            if button(ui, rr(136.0, 24.0, 218.0, 44.0), "Стереть таблицу") {
+                self.clear_table();
             }
 
             // ---- левый столбец ----
@@ -349,6 +347,18 @@ impl eframe::App for FoldApp {
                     );
                 }
             }
+            if button(ui, rr(15.0, 566.0, 82.0, 585.0), "Назад") && self.selected > 0 {
+                self.select_profile(self.selected - 1);
+            }
+            if button(ui, rr(88.0, 566.0, 155.0, 585.0), "Далее")
+                && self.selected + 1 < self.profiles.len()
+            {
+                self.select_profile(self.selected + 1);
+            }
+            if button(ui, rr(15.0, 589.0, 155.0, 608.0), "Стереть таблицу") {
+                self.clear_table();
+            }
+
             text(
                 ui,
                 px(38.0),

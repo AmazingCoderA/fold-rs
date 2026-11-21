@@ -3,6 +3,7 @@
 //! Формат:
 //!   v <скорость>       по умолчанию 1500
 //!   q <качество>       по умолчанию 95
+//!   angle <градусы>   по умолчанию 0 (Edit4 в оригинале)
 //!   profile <x0> <y0> <x1> <y1>
 //!   pick <trace> <time>
 //!   ...
@@ -28,6 +29,9 @@ pub fn parse(input: &str) -> Result<(Vec<Profile>, Settings), String> {
             }
             "q" if parts.len() == 2 => {
                 settings.quality = parts[1].parse().map_err(|_| e(lineno))?
+            }
+            "angle" if parts.len() == 2 => {
+                settings.angle = parts[1].parse().map_err(|_| e(lineno))?
             }
             "profile" if parts.len() == 5 => {
                 if let Some(p) = cur.take() {
@@ -74,13 +78,15 @@ mod tests {
 
     #[test]
     fn parse_demo() {
-        let (p, s) =
-            parse("# comment\nv 1600\nq 90\nprofile 0 0 1000 0\npick 1 0.5\npick 10 0.6\nend\n")
-                .unwrap();
+        let (p, s) = parse(
+            "# comment\nv 1600\nq 90\nangle 30\nprofile 0 0 1000 0\npick 1 0.5\npick 10 0.6\nend\n",
+        )
+        .unwrap();
         assert_eq!(p.len(), 1);
         assert_eq!(p[0].picks.len(), 2);
         assert_eq!(s.velocity, 1600.0);
         assert_eq!(s.quality, 90.0);
+        assert_eq!(s.angle, 30.0);
     }
 
     #[test]

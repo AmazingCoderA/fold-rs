@@ -1,0 +1,281 @@
+ 65249: #,##0.###
+ 65250: Axis Title
+ 65251: Axis Labels
+ 65252: 8
+ 65253: Arial
+ 65265: None
+ 65266: Scroll Bar
+ 65267: 3D Dark Shadow
+ 65268: 3D Light
+ 65269: Window Background
+ 65270: Window Frame
+ 65271: Window Text
+ 65272: No help keyword specified.
+ 65273: %s Angle must be between 0 and 359 degrees
+ 65274: DateTime Axis cannot be Logarithmic
+ 65275: Logarithmic Axis Min and Max values should be >= 0
+ 65276: Labels Separation % must be greater than 0
+ 65277: Axis increment must be >= 0
+ 65278: Axis Minimum Value must be <= Maximum
+ 65279: Axis Maximum Value must be >= Minimum
+ 65280: Axis Logarithmic Base should be >= 2
+ 65281: Button Face
+ 65282: Button Highlight
+ 65283: Button Shadow
+ 65284: Button Text
+ 65285: Caption Text
+ 65286: Default
+ 65287: Gray Text
+ 65288: Highlight Background
+ 65289: Highlight Text
+ 65290: Inactive Border
+ 65291: Inactive Caption
+ 65292: Inactive Caption Text
+ 65293: Info Background
+ 65294: Info Text
+ 65295: Menu Background
+ 65296: Menu Text
+ 65297: Silver
+ 65298: Red
+ 65299: Lime
+ 65300: Yellow
+ 65301: Blue
+ 65302: Fuchsia
+ 65303: Aqua
+ 65304: White
+ 65305: Money Green
+ 65306: Sky Blue
+ 65307: Cream
+ 65308: Medium Gray
+ 65309: Active Border
+ 65310: Active Caption
+ 65311: Application Workspace
+ 65312: Background
+ 65313: Docked control must have a name
+ 65314: Error removing control from dock tree
+ 65315:  - Dock zone not found
+ 65316:  - Dock zone has no control
+ 65317: Unable to find a Table of Contents
+ 65318: No help found for %s
+ 65319: No context-sensitive help installed
+ 65320: No topic-based help system installed
+ 65321: Black
+ 65322: Maroon
+ 65323: Green
+ 65324: Olive
+ 65325: Navy
+ 65326: Purple
+ 65327: Teal
+ 65328: Gray
+ 65329: End
+ 65330: Home
+ 65331: Left
+ 65332: Up
+ 65333: Right
+ 65334: Down
+ 65335: Ins
+ 65336: Del
+ 65337: Shift+
+ 65338: Ctrl+
+ 65339: Alt+
+ 65340: Invalid clipboard format
+ 65341: Clipboard does not support Icons
+ 65342: Cannot open clipboard
+ 65343: Text exceeds memo capacity
+ 65344: Menu '%s' is already being used by another form
+ 65345: OK
+ 65346: Cancel
+ 65347: &Help
+ 65348: &Abort
+ 65349: &Retry
+ 65350: &Ignore
+ 65351: &All
+ 65352: N&o to All
+ 65353: Yes to &All
+ 65354: BkSp
+ 65355: Tab
+ 65356: Esc
+ 65357: Enter
+ 65358: Space
+ 65359: PgUp
+ 65360: PgDn
+ 65361: &Retry
+ 65362: Abort
+ 65363: &All
+ 65364: Cannot drag a form
+ 65365: Metafiles
+ 65366: Enhanced Metafiles
+ 65367: Icons
+ 65368: Bitmaps
+ 65369: Invalid input value
+ 65370: Invalid input value.  Use escape key to abandon changes
+ 65371: Warning
+ 65372: Error
+ 65373: Information
+ 65374: Confirm
+ 65375: &Yes
+ 65376: &No
+ 65377: Cannot make a visible window modal
+ 65378: Menu index out of range
+ 65379: Menu inserted twice
+ 65380: Sub-menu is not in menu
+ 65381: Not enough timers available
+ 65382: GroupIndex cannot be less than a previous menu item's GroupIndex
+ 65383: Cannot create form. No MDI forms are currently active
+ 65384: Can only modify an image if it contains a bitmap
+ 65385: A control cannot have itself as its parent
+ 65386: OK
+ 65387: Cancel
+ 65388: &Yes
+ 65389: &No
+ 65390: &Help
+ 65391: &Close
+ 65392: &Ignore
+ 65393: Metafile is not valid
+ 65394: Cannot change the size of an icon
+ 65395: Unsupported clipboard format
+ 65396: Out of system resources
+ 65397: Canvas does not allow drawing
+ 65398: Invalid image size
+ 65399: Invalid ImageList
+ 65400: Invalid ImageList Index
+ 65401: Failed to read ImageList data from stream
+ 65402: Failed to write ImageList data to stream
+ 65403: Error creating window device context
+ 65404: Error creating window class
+ 65405: Cannot focus a disabled or invisible window
+ 65406: Control '%s' has no parent window
+ 65407: Cannot hide an MDI Child Form
+ 65408: Cannot change Visible in OnShow or OnHide
+ 65409: List capacity out of bounds (%d)
+ 65410: List count out of bounds (%d)
+ 65411: List index out of bounds (%d)
+ 65412: Out of memory while expanding memory stream
+ 65413: Error reading %s%s%s: %s
+ 65414: Stream read error
+ 65415: Property is read-only
+ 65416: Resource %s not found
+ 65417: %s.Seek not implemented
+ 65418: Operation not allowed on sorted list
+ 65419: Too many rows or columns deleted
+ 65420: %s not in a class registration group
+ 65421: Property %s does not exist
+ 65422: Stream write error
+ 65423: Bitmap image is not valid
+ 65424: Icon image is not valid
+ 65425: Class %s not found
+ 65426: A class named %s already exists
+ 65427: List does not allow duplicates ($0%x)
+ 65428: A component named %s already exists
+ 65429: String list does not allow duplicates
+ 65430: Cannot create file "%s". %s
+ 65431: Fixed column count must be less than column count
+ 65432: Fixed row count must be less than row count
+ 65433: Cannot open file "%s". %s
+ 65434: Grid too large for operation
+ 65435: Grid index out of range
+ 65436: Invalid stream format
+ 65437: ''%s'' is not a valid component name
+ 65438: Invalid property path
+ 65439: Invalid property value
+ 65440: Cannot insert or delete rows from grid
+ 65441: Wed
+ 65442: Thu
+ 65443: Fri
+ 65444: Sat
+ 65445: Sunday
+ 65446: Monday
+ 65447: Tuesday
+ 65448: Wednesday
+ 65449: Thursday
+ 65450: Friday
+ 65451: Saturday
+ 65452: Ancestor for '%s' not found
+ 65453: Cannot assign a %s to a %s
+ 65454: Bits index out of range
+ 65455: Can't write to a read-only resource stream
+ 65456: CheckSynchronize called from thread $%x, which is NOT the main thread
+ 65457: Dec
+ 65458: January
+ 65459: February
+ 65460: March
+ 65461: April
+ 65462: May
+ 65463: June
+ 65464: July
+ 65465: August
+ 65466: September
+ 65467: October
+ 65468: November
+ 65469: December
+ 65470: Sun
+ 65471: Mon
+ 65472: Tue
+ 65473: %s (%s, line %d)
+ 65474: Abstract Error
+ 65475: Access violation at address %p in module '%s'. %s of address %p
+ 65476: System Error.  Code: %d.
+%s
+ 65477: A call to an OS function failed
+ 65478: Jan
+ 65479: Feb
+ 65480: Mar
+ 65481: Apr
+ 65482: May
+ 65483: Jun
+ 65484: Jul
+ 65485: Aug
+ 65486: Sep
+ 65487: Oct
+ 65488: Nov
+ 65489: Variant or safe array index out of bounds
+ 65490: Variant or safe array is locked
+ 65491: Invalid variant type conversion
+ 65492: Invalid variant operation
+ 65493: Invalid variant operation (%s%.8x)
+%s
+ 65494: Could not convert variant of type (%s) into type (%s)
+ 65495: Overflow while converting variant of type (%s) into type (%s)
+ 65496: Variant overflow
+ 65497: Invalid argument
+ 65498: Invalid variant type
+ 65499: Operation not supported
+ 65500: Unexpected variant error
+ 65501: External exception %x
+ 65502: Assertion failed
+ 65503: Interface not supported
+ 65504: Exception in safecall method
+ 65505: Floating point underflow
+ 65506: Invalid pointer operation
+ 65507: Invalid class typecast
+ 65508: Access violation at address %p. %s of address %p
+ 65509: Access violation
+ 65510: Stack overflow
+ 65511: Control-C hit
+ 65512: Privileged instruction
+ 65513: Exception %s in module %s at %p.
+%s%s
+
+ 65514: Application Error
+ 65515: Format '%s' invalid or incompatible with argument
+ 65516: No argument for format '%s'
+ 65517: Variant method calls not supported
+ 65518: Read
+ 65519: Write
+ 65520: Error creating variant or safe array
+ 65521: '%s' is not a valid integer value
+ 65522: Out of memory
+ 65523: I/O error %d
+ 65524: File not found
+ 65525: Invalid filename
+ 65526: Too many open files
+ 65527: File access denied
+ 65528: Read beyond end of file
+ 65529: Disk full
+ 65530: Invalid numeric input
+ 65531: Division by zero
+ 65532: Range check error
+ 65533: Integer overflow
+ 65534: Invalid floating point operation
+ 65535: Floating point division by zero
+ 65536: Floating point overflow
