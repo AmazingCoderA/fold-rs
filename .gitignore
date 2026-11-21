@@ -9,3 +9,5 @@ analysis/memory/*.bin
 analysis/memory/*.exe
 analysis/res_unpacked/*.bin
 analysis/res/*.bin
+# Диагностические снимки нашего GUI (не являются исходниками)
+analysis/gui_*.png
