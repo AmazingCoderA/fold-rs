@@ -155,8 +155,10 @@ pub struct FoldApp {
 impl FoldApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let fonts_ok = install_fonts(cc);
-        let mut settings = Settings::default();
-        settings.velocity = 1200.0;
+        let settings = Settings {
+            velocity: 1200.0,
+            ..Default::default()
+        };
         let profiles = vec![Profile {
             id: 0,
             x0: 100.0,
@@ -433,6 +435,7 @@ fn font_of(fonts_ok: bool, face: Face, size: f32) -> FontId {
     FontId::new(size, FontFamily::Name(Arc::from(name)))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn label(
     ui: &egui::Ui,
     app: &FoldApp,
@@ -452,6 +455,7 @@ fn label(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 fn centered(
     ui: &egui::Ui,
     app: &FoldApp,
@@ -665,10 +669,9 @@ impl eframe::App for FoldApp {
                 r(934.0, 16.0, 65.0, 20.0),
                 &mut self.yang,
                 "y_field",
-            ) {
-                if self.yang.parse::<f64>().is_ok() {
-                    // вторая координата — запасная, карту не меняет
-                }
+            ) && self.yang.parse::<f64>().is_ok()
+            {
+                // вторая координата — запасная, карту не меняет
             }
 
             // ── Panel1 (левая панель, bsSingle, clWhite) ─────────────────────
@@ -723,8 +726,9 @@ impl eframe::App for FoldApp {
                 r(64.0, 104.0, 77.0, 22.0),
                 &mut self.fval,
                 "f_field",
-            ) {
-                if self.fval.parse::<f64>().is_ok() {}
+            ) && self.fval.parse::<f64>().is_ok()
+            {
+                // f из DFM не влияет на поверхность (см. analysis/map_reverse_report.md)
             }
             label(
                 ui,

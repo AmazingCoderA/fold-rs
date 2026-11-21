@@ -152,10 +152,14 @@ mod tests {
     #[test]
     fn angle_changes_surface() {
         let profiles: Vec<Profile> = Vec::new();
-        let mut a = Settings::default();
-        a.angle = 0.0;
-        let mut b = Settings::default();
-        b.angle = 45.0;
+        let a = Settings {
+            angle: 0.0,
+            ..Default::default()
+        };
+        let b = Settings {
+            angle: 45.0,
+            ..Default::default()
+        };
         let ga = build_map(&profiles, &a);
         let gb = build_map(&profiles, &b);
         assert!(ga

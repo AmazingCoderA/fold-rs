@@ -111,6 +111,30 @@ fn e(n: usize) -> String {
     format!("syntax error on line {}", n + 1)
 }
 
+pub fn to_pgm(grid: &crate::grid::MapGrid, path: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut f = std::fs::File::create(path)?;
+    writeln!(f, "P5\n{} {}\n65535", grid.width, grid.height)?;
+    let mut min = f32::INFINITY;
+    let mut max = f32::NEG_INFINITY;
+    for &v in &grid.data {
+        if v.is_finite() {
+            min = min.min(v);
+            max = max.max(v);
+        }
+    }
+    let span = (max - min).max(1.0);
+    for &v in &grid.data {
+        let p = if v.is_finite() {
+            ((v - min) / span * 65535.0) as u16
+        } else {
+            0
+        };
+        f.write_all(&p.to_be_bytes())?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -148,28 +172,4 @@ mod tests {
         assert_eq!(p2[0].picks, p[0].picks);
         assert_eq!(p2[0].x1, p[0].x1);
     }
-}
-
-pub fn to_pgm(grid: &crate::grid::MapGrid, path: &str) -> std::io::Result<()> {
-    use std::io::Write;
-    let mut f = std::fs::File::create(path)?;
-    writeln!(f, "P5\n{} {}\n65535", grid.width, grid.height)?;
-    let mut min = f32::INFINITY;
-    let mut max = f32::NEG_INFINITY;
-    for &v in &grid.data {
-        if v.is_finite() {
-            min = min.min(v);
-            max = max.max(v);
-        }
-    }
-    let span = (max - min).max(1.0);
-    for &v in &grid.data {
-        let p = if v.is_finite() {
-            ((v - min) / span * 65535.0) as u16
-        } else {
-            0
-        };
-        f.write_all(&p.to_be_bytes())?;
-    }
-    Ok(())
 }

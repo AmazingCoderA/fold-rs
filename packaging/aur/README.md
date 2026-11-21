@@ -11,11 +11,15 @@
    git clone ssh://aur@aur.archlinux.org/fold-rs-git.git
    cd fold-rs-git
    ```
-4. Скопируй `PKGBUILD` и `.SRCINFO` из этого каталога:
+4. Скопируй `PKGBUILD` из этого каталога и **обязательно перегенерируй**
+   `.SRCINFO` на свежем клоне (у `-git` пакета `pkgver()` плавает):
    ```bash
    cp /path/to/RustFold/packaging/aur/PKGBUILD .
    makepkg --printsrcinfo > .SRCINFO
    ```
+
+   Лежащий здесь `.SRCINFO` — только справочный снимок на момент релиза;
+   перед публикацией его надо пересоздать, иначе AUR покажет старую версию.
 5. Проверь сборку:
    ```bash
    makepkg -si
