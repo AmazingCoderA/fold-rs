@@ -52,3 +52,32 @@ jobs:
           name: fold-${{ matrix.name }}
           path: dist/*
           if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+      - name: Build native libraries
+        run: |
+          cargo ndk --manifest-path android-rs/Cargo.toml \
+            -t arm64-v8a -t armeabi-v7a -t x86_64 \
+            -o android/app/src/main/jniLibs build --release
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Assemble APK
+        run: gradle -p android assembleDebug --no-daemon
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fold-android-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error

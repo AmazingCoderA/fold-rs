@@ -1,0 +1,20 @@
+[package]
+name = "fold-android"
+version = "0.1.0"
+edition = "2021"
+description = "Android JNI bindings for the Fold core"
+
+[lib]
+name = "fold_android"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+fold = { path = ".." }
+jni = "0.21"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

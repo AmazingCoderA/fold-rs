@@ -1,0 +1,11 @@
+D:\2026RustLev\RustFold\android-rs\target\debug\build\libloading/f2f9cb8d8341f087\out\libloading-f2f9cb8d8341f087.d: C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\lib.rs C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\changelog.rs C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\error.rs C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\os\mod.rs C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\os\windows\mod.rs C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\safe.rs C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\util.rs
+
+D:\2026RustLev\RustFold\android-rs\target\debug\build\libloading/f2f9cb8d8341f087\out\liblibloading-f2f9cb8d8341f087.rmeta: C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\lib.rs C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\changelog.rs C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\error.rs C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\os\mod.rs C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\os\windows\mod.rs C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\safe.rs C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\util.rs
+
+C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\lib.rs:
+C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\changelog.rs:
+C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\error.rs:
+C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\os\mod.rs:
+C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\os\windows\mod.rs:
+C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\safe.rs:
+C:\Users\neon\.cargo\registry\src\index.crates.io-1949cf8c6b5b557f\libloading-0.8.9\src\util.rs:
