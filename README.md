@@ -16,7 +16,7 @@
 | Linux x64 | ✅ CI зелёный | `fold-linux-x64.tar.gz` |
 | macOS arm64 | ✅ CI зелёный | `fold-macos-arm64.tar.gz` |
 | Android (arm64-v8a, armeabi-v7a, x86_64) | ✅ JNI + Kotlin UI | `fold-android-universal.apk` |
-| Arch Linux AUR | ✅ PKGBUILD готов | `fold-rs-PKGBUILD`, `fold-rs-git` |
+| Arch Linux AUR | ✅ PKGBUILD + .SRCINFO готовы | `fold-rs-PKGBUILD`, `fold-rs-SRCINFO`, `fold-rs-git` |
 
 **Релизы:** https://github.com/AmazingCoderA/fold-rs/releases
 
@@ -24,7 +24,7 @@
 
 ## GUI 1:1
 
-Интерфейс восстановлен по предоставленному скриншоту (894×656):
+Интерфейс восстановлен из бинарного DFM-ресурса оригинала (клиент 1016×694), скриншот 894×656 использован только для проверки масштаба 7/8:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
