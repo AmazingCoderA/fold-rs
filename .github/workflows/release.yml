@@ -115,6 +115,7 @@ jobs:
           mkdir -p assets
           find dist -type f \( -name '*.tar.gz' -o -name '*.apk' \) -exec cp {} assets/ \;
           cp packaging/aur/PKGBUILD assets/fold-rs-PKGBUILD
+          cp packaging/aur/.SRCINFO assets/fold-rs-SRCINFO
           cp packaging/aur/README.md assets/fold-rs-AUR-README.md
           cd assets
           sha256sum * > SHA256SUMS.txt
@@ -134,7 +135,7 @@ jobs:
             - `fold-linux-x64.tar.gz` — CLI + GUI для Linux
             - `fold-macos-arm64.tar.gz` — CLI + GUI для macOS
             - `fold-android-universal.apk` — APK для arm64-v8a / armeabi-v7a / x86_64
-            - `fold-rs-PKGBUILD`, `fold-rs-AUR-README.md` — файлы для AUR (`fold-rs-git`)
+            - `fold-rs-PKGBUILD`, `fold-rs-SRCINFO`, `fold-rs-AUR-README.md` — файлы для AUR (`fold-rs-git`)
             - `SHA256SUMS.txt` — контрольные суммы
 
             Забытый эксперимент 2007 года. Лицензий и обещаний нет.
