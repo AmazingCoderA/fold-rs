@@ -306,22 +306,47 @@ fn scale_color(t: f32, theme: usize) -> Color32 {
     Color32::from_rgb(c[0], c[1], c[2])
 }
 
-/// Сейсмическая трасса «виггл»: чёрная волна вокруг своей оси с пиком на времени pick.
+/// Сейсмическая трасса «виггл» в точности как в original: пухлые залитые
+/// чёрные лепестки вокруг тонкой оси ampiтудой ~20 px (замерено по скриншоту:
+/// у трассы x=562 главный лепесток занимает x=563..583, y=501..519).
+/// Формируем Ricker-вейвлет: один широкий главный лепесток и два узких боковых.
 fn wiggle(ui: &egui::Ui, cx: f32, sec: Rect, pick_time: f64) {
-    const N: usize = 72;
+    const N: usize = 160;
+    let scale = (sec.height() / 174.0).max(0.2);
+    let amp = 20.0 * scale;
+    let freq = 18.0_f64; // Гц: main lobe ≈ 22 px при диапазоне 0.4 с / 174 px
+    let step = sec.height() / N as f32;
     let mut pts = Vec::with_capacity(N + 1);
     for k in 0..=N {
         let fy = k as f32 / N as f32;
         let y = sec.min.y + fy * sec.height();
-        let t = 3.2_f64 + (1.0 - f64::from(fy)) * 0.4;
-        let dt = t - pick_time;
-        let env = (-dt * dt / 0.00045).exp() as f32;
-        let wave = (dt * 240.0).sin() as f32;
-        pts.push(Pos2::new(cx + env * wave * 12.0, y));
+        let t = 3.6_f64 - f64::from(fy) * 0.4;
+        let dt = (t - pick_time) * freq;
+        let w = (1.0 - 2.0 * std::f64::consts::PI.powi(2) * dt * dt)
+            * (-std::f64::consts::PI.powi(2) * dt * dt).exp();
+        pts.push((y, cx + w as f32 * amp, w));
     }
+    // Заливаем каждый лепесток полосками — надёжнее, чем невыпуклый полигон.
+    for &(y, x, w) in &pts {
+        let x0 = x.min(cx);
+        let x1 = x.max(cx);
+        if (x1 - x0) > 0.6 && w.abs() > 0.02 {
+            ui.painter().rect_filled(
+                Rect::from_min_max(Pos2::new(x0, y), Pos2::new(x1, y + step + 0.6)),
+                0.0,
+                Color32::from_gray(15),
+            );
+        }
+    }
+    // Тонкая ось и контур поверх заливки — чёткие края без «мыла».
+    ui.painter().line_segment(
+        [Pos2::new(cx, sec.min.y), Pos2::new(cx, sec.max.y)],
+        Stroke::new(0.6_f32, Color32::from_gray(120)),
+    );
+    let line: Vec<Pos2> = pts.iter().map(|&(y, x, _)| Pos2::new(x, y)).collect();
     ui.painter().add(egui::Shape::line(
-        pts,
-        Stroke::new(1.0_f32, Color32::from_gray(35)),
+        line,
+        Stroke::new(0.8_f32, Color32::BLACK),
     ));
 }
 
@@ -482,7 +507,8 @@ impl eframe::App for FoldApp {
             };
             let theme = self.theme;
 
-            ui.painter().rect_filled(r, 0.0, Color32::from_gray(245));
+            ui.painter()
+                .rect_filled(r, 0.0, Color32::from_rgb(246, 246, 244));
 
             // ---- меню ----
             let menu = rr(0.0, 20.0, W, 48.0);
@@ -528,7 +554,15 @@ impl eframe::App for FoldApp {
 
             // ---- левый столбец ----
             let left = rr(0.0, 48.0, LEFT, H);
-            ui.painter().rect_filled(left, 0.0, Color32::from_gray(240));
+            ui.painter()
+                .rect_filled(left, 0.0, Color32::from_rgb(240, 240, 236));
+            ui.painter().line_segment(
+                [
+                    Pos2::new(left.min.x + 1.0 * sx, r.min.y),
+                    Pos2::new(left.min.x + 1.0 * sx, r.max.y),
+                ],
+                Stroke::new(1.0_f32, Color32::from_gray(250)),
+            );
             ui.painter().line_segment(
                 [
                     Pos2::new(left.max.x, r.min.y),
@@ -580,16 +614,76 @@ impl eframe::App for FoldApp {
                 12.0,
                 Color32::from_gray(30),
             );
-            if let Some(p) = self.profiles.get(self.selected) {
-                for (i, pk) in p.picks.iter().take(15).enumerate() {
-                    text(
-                        ui,
-                        px(39.0),
-                        py(333.0 + i as f32 * 14.0),
-                        format!("t{} = {:.3} с", i, pk.time),
-                        11.0,
-                        Color32::from_gray(40),
-                    );
+            // Таблица корреляции — настоящая сетка, как StringGrid1 в original:
+            // рамка x=34..150, шаг строки 12 px (замерено по пикселям).
+            let table = rr(34.0, 328.0, 150.0, 566.0);
+            ui.painter().rect_filled(table, 0.0, Color32::WHITE);
+            ui.painter()
+                .rect_stroke(table, 0.0, Stroke::new(1.0_f32, Color32::from_gray(140)));
+            let picks_for_table: Vec<Pick> = self
+                .profiles
+                .get(self.selected)
+                .map(|p| p.picks.clone())
+                .unwrap_or_default();
+            let rows = ((table.height() / (12.0 * (H / 656.0))).floor() as usize).max(1);
+            let row_h = table.height() / rows as f32;
+            let mut delete_row = None;
+            for (i, pk) in picks_for_table.iter().take(rows).enumerate() {
+                let y0 = table.min.y + i as f32 * row_h;
+                let line_col = if i % 2 == 0 {
+                    Color32::from_gray(228)
+                } else {
+                    Color32::from_gray(240)
+                };
+                ui.painter().line_segment(
+                    [Pos2::new(table.min.x, y0), Pos2::new(table.max.x, y0)],
+                    Stroke::new(0.6_f32, line_col),
+                );
+                text(
+                    ui,
+                    table.min.x + 4.0,
+                    y0 + (row_h - 10.0 * (H / 656.0)) * 0.5,
+                    format!("t{} = {:.3} с", i, pk.time),
+                    9.0,
+                    Color32::from_gray(35),
+                );
+                // Крестик удаления строки — «если не там, можно стереть одну».
+                let cross = Rect::from_min_max(
+                    Pos2::new(table.max.x - 12.0 * sx, y0 + 1.0),
+                    Pos2::new(table.max.x - 2.0 * sx, y0 + row_h - 1.0),
+                );
+                let resp = ui.interact(cross, egui::Id::new(("del_pick", i)), Sense::click());
+                let cc = if resp.hovered() {
+                    Color32::from_rgb(200, 40, 30)
+                } else {
+                    Color32::from_gray(140)
+                };
+                let m = 2.5_f32 * sx;
+                ui.painter().line_segment(
+                    [
+                        Pos2::new(cross.min.x + m, cross.min.y + m),
+                        Pos2::new(cross.max.x - m, cross.max.y - m),
+                    ],
+                    Stroke::new(1.0_f32, cc),
+                );
+                ui.painter().line_segment(
+                    [
+                        Pos2::new(cross.max.x - m, cross.min.y + m),
+                        Pos2::new(cross.min.x + m, cross.max.y - m),
+                    ],
+                    Stroke::new(1.0_f32, cc),
+                );
+                if resp.clicked() {
+                    delete_row = Some(i);
+                }
+            }
+            if let Some(i) = delete_row {
+                if let Some(p) = self.profiles.get_mut(self.selected) {
+                    if i < p.picks.len() {
+                        p.picks.remove(i);
+                        self.dirty = true;
+                        self.status = format!("Строка {} удалена", i + 1);
+                    }
                 }
             }
             if button(ui, rr(15.0, 566.0, 82.0, 585.0), "btn_prev", "Назад") && self.selected > 0
@@ -656,6 +750,8 @@ impl eframe::App for FoldApp {
             let map_rect = rr(180.0, MAP_TOP, 880.0, MAP_BOTTOM);
             ui.painter()
                 .rect_filled(map_rect, 0.0, scale_color(0.0, theme));
+            ui.painter()
+                .rect_stroke(map_rect, 0.0, Stroke::new(1.0_f32, Color32::from_gray(90)));
             if let Some(tex) = &self.texture {
                 ui.painter().image(
                     tex.id(),
@@ -776,9 +872,10 @@ impl eframe::App for FoldApp {
                 Color32::from_gray(40),
             );
             let sec = rr(180.0, SEC_TOP, 880.0, SEC_BOTTOM);
-            ui.painter().rect_filled(sec, 0.0, Color32::from_gray(252));
             ui.painter()
-                .rect_stroke(sec, 0.0, Stroke::new(1.0_f32, Color32::from_gray(150)));
+                .rect_filled(sec, 0.0, Color32::from_rgb(253, 253, 252));
+            ui.painter()
+                .rect_stroke(sec, 0.0, Stroke::new(1.0_f32, Color32::from_gray(140)));
             text(
                 ui,
                 px(184.0),
