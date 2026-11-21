@@ -1,4 +1,5 @@
 /target/
+/android-rs/target/
 *.pgm
 *.pnm
 .DS_Store
