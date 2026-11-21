@@ -33,7 +33,12 @@
 
 ## Обновление
 
-При выходе новой версии обнови `pkgver`/`pkgrel` (для `-git` пакета `pkgver()` считается из git автоматически), перегенерируй `.SRCINFO` командой `makepkg --printsrcinfo > .SRCINFO` и запушь.
+При выходе новой версии обнови `pkgrel` в `PKGBUILD` (для `-git` пакета `pkgver()` считается из git автоматически), перегенерируй `.SRCINFO` командой `makepkg --printsrcinfo > .SRCINFO` и запушь.
+
+Если `git push` в AUR отвечает `Permission denied (publickey)`, значит публичный
+ключ (`~/.ssh/id_rsa.pub`) не добавлен в настройки аккаунта AUR. Проверить можно
+командой `ssh -T aur@aur.archlinux.org` (успех выглядит как отказ в интерактивном
+входе, но **не** `Permission denied`). Без этого релиз в AUR опубликовать нельзя.
 
 ## Установка пользователями
 
