@@ -234,9 +234,10 @@ class FoldView @JvmOverloads constructor(
         val t = u.coerceIn(0f, 1f)
         val stops = arrayOf(
             0f to intArrayOf(82, 203, 183),
-            0.35f to intArrayOf(80, 203, 102),
-            0.7f to intArrayOf(185, 203, 62),
-            1f to intArrayOf(230, 150, 60)
+            0.25f to intArrayOf(80, 203, 102),
+            0.5f to intArrayOf(134, 203, 62),
+            0.75f to intArrayOf(185, 203, 62),
+            1f to intArrayOf(202, 171, 62)
         )
         for (i in 0 until stops.size - 1) {
             if (t <= stops[i + 1].first) {
@@ -249,6 +250,6 @@ class FoldView @JvmOverloads constructor(
                 )
             }
         }
-        return Color.rgb(230, 150, 60)
+        return Color.rgb(202, 171, 62)
     }
 }

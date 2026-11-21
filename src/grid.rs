@@ -68,7 +68,11 @@ pub fn build_map(profiles: &[Profile], settings: &Settings) -> MapGrid {
     let (w, h) = (settings.width, settings.height);
     let mut data = vec![f32::NAN; w * h];
     if profiles.is_empty() || w == 0 || h == 0 {
-        return MapGrid { width: w, height: h, data };
+        return MapGrid {
+            width: w,
+            height: h,
+            data,
+        };
     }
 
     let mut samples: Vec<Sample> = Vec::with_capacity(512);
@@ -98,13 +102,17 @@ pub fn build_map(profiles: &[Profile], settings: &Settings) -> MapGrid {
         }
     }
     if samples.is_empty() {
-        return MapGrid { width: w, height: h, data };
+        return MapGrid {
+            width: w,
+            height: h,
+            data,
+        };
     }
 
     let dx = MAP_WIDTH_M / (w - 1).max(1) as f64;
     let dy = MAP_HEIGHT_M / (h - 1).max(1) as f64;
     let radius2 = 2000.0f64 * 2000.0; // 0x466418
-    let scale2 = 40_000.0f64;         // (200 м)^2
+    let scale2 = 40_000.0f64; // (200 м)^2
 
     for gy in 0..h {
         let my = gy as f64 * dy;
@@ -130,7 +138,11 @@ pub fn build_map(profiles: &[Profile], settings: &Settings) -> MapGrid {
         }
     }
 
-    MapGrid { width: w, height: h, data }
+    MapGrid {
+        width: w,
+        height: h,
+        data,
+    }
 }
 
 #[cfg(test)]
@@ -147,8 +159,14 @@ mod tests {
             x1: 4000.0,
             y1: 0.0,
             picks: vec![
-                Pick { trace: 0.0, time: 1.0 },
-                Pick { trace: 100.0, time: 2.0 },
+                Pick {
+                    trace: 0.0,
+                    time: 1.0,
+                },
+                Pick {
+                    trace: 100.0,
+                    time: 2.0,
+                },
             ],
         };
         let s = Settings::default();
@@ -167,7 +185,16 @@ mod tests {
             y0: 2000.0,
             x1: 8000.0,
             y1: 2000.0,
-            picks: vec![Pick { trace: 0.0, time: 1.0 }, Pick { trace: 100.0, time: 1.0 }],
+            picks: vec![
+                Pick {
+                    trace: 0.0,
+                    time: 1.0,
+                },
+                Pick {
+                    trace: 100.0,
+                    time: 1.0,
+                },
+            ],
         };
         let g = build_map(&[pr], &Settings::default());
         assert!(g.get(20, 10).is_finite());

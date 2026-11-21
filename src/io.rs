@@ -18,13 +18,21 @@ pub fn parse(input: &str) -> Result<(Vec<Profile>, Settings), String> {
 
     for (lineno, raw) in input.lines().enumerate() {
         let line = raw.trim();
-        if line.is_empty() || line.starts_with('#') { continue; }
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
         let parts: Vec<&str> = line.split_whitespace().collect();
         match parts[0] {
-            "v" if parts.len() == 2 => settings.velocity = parts[1].parse().map_err(|_| e(lineno))?,
-            "q" if parts.len() == 2 => settings.quality = parts[1].parse().map_err(|_| e(lineno))?,
+            "v" if parts.len() == 2 => {
+                settings.velocity = parts[1].parse().map_err(|_| e(lineno))?
+            }
+            "q" if parts.len() == 2 => {
+                settings.quality = parts[1].parse().map_err(|_| e(lineno))?
+            }
             "profile" if parts.len() == 5 => {
-                if let Some(p) = cur.take() { profiles.push(p); }
+                if let Some(p) = cur.take() {
+                    profiles.push(p);
+                }
                 let id = profiles.len();
                 cur = Some(Profile {
                     id,
@@ -42,15 +50,23 @@ pub fn parse(input: &str) -> Result<(Vec<Profile>, Settings), String> {
                     time: parts[2].parse().map_err(|_| e(lineno))?,
                 });
             }
-            "end" => { if let Some(p) = cur.take() { profiles.push(p); } }
+            "end" => {
+                if let Some(p) = cur.take() {
+                    profiles.push(p);
+                }
+            }
             _ => return Err(e(lineno)),
         }
     }
-    if let Some(p) = cur { profiles.push(p); }
+    if let Some(p) = cur {
+        profiles.push(p);
+    }
     Ok((profiles, settings))
 }
 
-fn e(n: usize) -> String { format!("syntax error on line {}", n + 1) }
+fn e(n: usize) -> String {
+    format!("syntax error on line {}", n + 1)
+}
 
 #[cfg(test)]
 mod tests {
@@ -58,7 +74,9 @@ mod tests {
 
     #[test]
     fn parse_demo() {
-        let (p, s) = parse("# comment\nv 1600\nq 90\nprofile 0 0 1000 0\npick 1 0.5\npick 10 0.6\nend\n").unwrap();
+        let (p, s) =
+            parse("# comment\nv 1600\nq 90\nprofile 0 0 1000 0\npick 1 0.5\npick 10 0.6\nend\n")
+                .unwrap();
         assert_eq!(p.len(), 1);
         assert_eq!(p[0].picks.len(), 2);
         assert_eq!(s.velocity, 1600.0);
@@ -78,11 +96,18 @@ pub fn to_pgm(grid: &crate::grid::MapGrid, path: &str) -> std::io::Result<()> {
     let mut min = f32::INFINITY;
     let mut max = f32::NEG_INFINITY;
     for &v in &grid.data {
-        if v.is_finite() { min = min.min(v); max = max.max(v); }
+        if v.is_finite() {
+            min = min.min(v);
+            max = max.max(v);
+        }
     }
     let span = (max - min).max(1.0);
     for &v in &grid.data {
-        let p = if v.is_finite() { ((v - min) / span * 65535.0) as u16 } else { 0 };
+        let p = if v.is_finite() {
+            ((v - min) / span * 65535.0) as u16
+        } else {
+            0
+        };
         f.write_all(&p.to_be_bytes())?;
     }
     Ok(())

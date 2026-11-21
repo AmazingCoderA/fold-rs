@@ -10,11 +10,11 @@
 //!   эллиптические веса: 0.4 / 0.6 (xword 0x4663E8 / 0x4663F4)
 //!   порог 210, масштаб 26, база 250, сдвиг 2000 (0x466400..0x466418)
 
+pub mod grid;
+pub mod gui;
+pub mod io;
 pub mod model;
 pub mod velocity;
-pub mod grid;
-pub mod io;
-pub mod gui;
 
-pub use model::{Pick, Profile, Settings};
 pub use grid::{build_map, MapGrid};
+pub use model::{Pick, Profile, Settings};

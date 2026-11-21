@@ -56,7 +56,7 @@ impl Default for Settings {
             velocity: 1500.0,
             quality: 95.0,
             step: 200.0,
-            width: (MAP_WIDTH_M / 200.0) as usize + 1,  // 41
+            width: (MAP_WIDTH_M / 200.0) as usize + 1, // 41
             height: (MAP_HEIGHT_M / 200.0) as usize + 1, // 21
         }
     }

@@ -3,12 +3,13 @@ name: Release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  desktop:
     strategy:
       fail-fast: false
       matrix:
@@ -41,8 +42,101 @@ jobs:
           cp target/release/fold-gui${{ matrix.exe }} out/
           cp README.md out/
           tar -czf fold-${{ matrix.name }}.tar.gz -C out .
-      - name: Publish
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: fold-${{ matrix.name }}
+          path: fold-${{ matrix.name }}.tar.gz
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-latest
+    env:
+      NDK_VERSION: 26.3.11579264
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          else
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)"
+          fi
+          test -n "$SDKMANAGER" && test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses > /dev/null || true
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "ndk;$NDK_VERSION"
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+      - name: Build native libraries
+        shell: bash
+        run: |
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/$NDK_VERSION"
+          export ANDROID_NDK_ROOT="$ANDROID_NDK_HOME"
+          cargo ndk --manifest-path android-rs/Cargo.toml \
+            -t arm64-v8a -t armeabi-v7a -t x86_64 \
+            -o android/app/src/main/jniLibs build --release
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Assemble APK
+        run: gradle -p android assembleDebug --no-daemon
+      - name: Rename APK
+        shell: bash
+        run: cp android/app/build/outputs/apk/debug/*.apk fold-android-universal.apk
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: fold-android-apk
+          path: fold-android-universal.apk
+          if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [desktop, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          mkdir -p assets
+          find dist -type f \( -name '*.tar.gz' -o -name '*.apk' \) -exec cp {} assets/ \;
+          cp packaging/aur/PKGBUILD assets/fold-rs-PKGBUILD
+          cp packaging/aur/README.md assets/fold-rs-AUR-README.md
+          cd assets
+          sha256sum * > SHA256SUMS.txt
+          ls -lh
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          files: fold-${{ matrix.name }}.tar.gz
+          overwrite_files: true
           generate_release_notes: true
+          body: |
+            **Fold — Rust-порт программы 2007 года.**
+
+            GUI восстановлен по эталонному скриншоту 894×656, ядро считает структурную карту за миллисекунды, Android-порт работает через Rust JNI + Kotlin UI.
+
+            ### Ассеты
+            - `fold-windows-x64.tar.gz` — CLI + GUI для Windows
+            - `fold-linux-x64.tar.gz` — CLI + GUI для Linux
+            - `fold-macos-arm64.tar.gz` — CLI + GUI для macOS
+            - `fold-android-universal.apk` — APK для arm64-v8a / armeabi-v7a / x86_64
+            - `fold-rs-PKGBUILD`, `fold-rs-AUR-README.md` — файлы для AUR (`fold-rs-git`)
+            - `SHA256SUMS.txt` — контрольные суммы
+
+            Оригинал: Viktor Romanov, 2007. Лицензий и обещаний нет.
+          files: |
+            assets/*
