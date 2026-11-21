@@ -1,12 +1,12 @@
 //! GUI-клон оригинального окна Fold 1:1 (894x656).
 //!
-//! Раскладка восстановлена по скриншоту:
-//!   - строка меню: Структура / Профили / Стереть таблицу
+//! Раскладка восстановлена по единственному разрешённому скриншоту и DFM
+//! оригинального .exe (лежит в корне как 03_Fold.exe):
+//!   - меню: Структура / Профили / Стереть таблицу / Строка / Цвет / Справка
 //!   - левый столбец: Параметры структуры, V ср, f, Координаты профиля,
 //!     Профиль №, Таблица корреляции, Качество изображения
-//!   - верхняя область: "Построение структурной карты отражающего горизонта",
-//!     цветная структурная карта с сеткой
-//!   - нижняя область: "Временной разрез" с осью трасс 1..10
+//!   - карта: 8 вертикальных и 10 горизонтальных делений (шаг 35 px в original)
+//!   - низ: цветовая легенда 21 полоса, H min / H max, временной разрез
 
 use crate::grid::{build_map, MapGrid};
 use crate::io::{parse, serialize};
@@ -21,7 +21,7 @@ const MAP_BOTTOM: f32 = 432.0;
 const SEC_TOP: f32 = 456.0;
 const SEC_BOTTOM: f32 = 630.0;
 
-/// Цветовая шкала структурной карты из эталонного скриншота:
+/// Геометрия легенды снята пиксель-в-пиксель со скриншота:
 /// x=440..653, y=436..453, 21 полоса, синий → голубой → зелёный → жёлтый → красный.
 const LEGEND_X0: f32 = 440.0;
 const LEGEND_X1: f32 = 653.0;
@@ -29,13 +29,67 @@ const LEGEND_Y0: f32 = 436.0;
 const LEGEND_Y1: f32 = 453.0;
 const BANDS: usize = 21;
 
-/// Точные RGB-стопы шкалы, снятые пиксель-в-пиксель со скриншота.
-const SCALE_STOPS: [(f32, [u8; 3]); 5] = [
-    (0.0, [70, 96, 205]),
-    (0.25, [82, 204, 188]),
-    (0.50, [82, 203, 80]),
-    (0.75, [202, 202, 63]),
-    (1.0, [198, 80, 64]),
+/// Поля ввода левой панели в порядке обхода Tab.
+const FIELDS: [&str; 4] = ["v_field", "f_field", "xg_field", "yg_field"];
+
+struct Theme {
+    name: &'static str,
+    stops: [(f32, [u8; 3]); 5],
+}
+
+/// Палитры карты. Первая — точная палитра original; остальные — чтобы было
+/// «разнообразнее по цветам», переключаются кнопкой «Цвет».
+const THEMES: [Theme; 5] = [
+    Theme {
+        name: "Классика",
+        stops: [
+            (0.00, [70, 96, 205]),
+            (0.25, [82, 204, 188]),
+            (0.50, [82, 203, 80]),
+            (0.75, [202, 202, 63]),
+            (1.00, [198, 80, 64]),
+        ],
+    },
+    Theme {
+        name: "Океан",
+        stops: [
+            (0.00, [12, 32, 78]),
+            (0.25, [16, 88, 140]),
+            (0.50, [32, 160, 190]),
+            (0.75, [120, 215, 225]),
+            (1.00, [230, 248, 252]),
+        ],
+    },
+    Theme {
+        name: "Пламя",
+        stops: [
+            (0.00, [30, 8, 10]),
+            (0.25, [132, 20, 22]),
+            (0.50, [222, 72, 20]),
+            (0.75, [250, 172, 42]),
+            (1.00, [255, 246, 205]),
+        ],
+    },
+    Theme {
+        name: "Лайм",
+        stops: [
+            (0.00, [18, 50, 22]),
+            (0.25, [40, 122, 52]),
+            (0.50, [112, 192, 62]),
+            (0.75, [204, 228, 84]),
+            (1.00, [250, 250, 212]),
+        ],
+    },
+    Theme {
+        name: "Графит",
+        stops: [
+            (0.00, [28, 32, 38]),
+            (0.25, [84, 92, 102]),
+            (0.50, [146, 154, 162]),
+            (0.75, [206, 212, 218]),
+            (1.00, [252, 252, 252]),
+        ],
+    },
 ];
 
 pub struct FoldApp {
@@ -55,12 +109,14 @@ pub struct FoldApp {
     drag_start: Option<Pos2>,
     drag_cur: Option<Pos2>,
     show_about: bool,
+    show_help: bool,
     show_io: bool,
     io_text: String,
     io_error: String,
-    /// Ключ, при котором текстура уже пересчитана: (угол, ширина, высота).
+    theme: usize,
+    /// Ключ, при котором текстура уже пересчитана: (угол, ширина, высота, тема).
     /// Пока ключ не изменился — карту не трогаем вообще (не теряем кадры).
-    map_key: Option<(f64, usize, usize)>,
+    map_key: Option<(f64, usize, usize, usize)>,
 }
 
 impl FoldApp {
@@ -112,20 +168,23 @@ impl FoldApp {
             drag_start: None,
             drag_cur: None,
             show_about: false,
+            show_help: false,
             show_io: false,
             io_text: String::new(),
             io_error: String::new(),
+            theme: 0,
             map_key: None,
         }
     }
 
     fn recalc(&mut self, ctx: &egui::Context) {
-        // Карта зависит только от угла и размеров сетки. Скорость, качество,
-        // координаты профиля и пики на неё не влияют — не пересчитываем зря.
+        // Карта зависит только от угла, размеров сетки и палитры. Скорость,
+        // качество и пики на неё не влияют — не пересчитываем зря.
         let key = (
             self.settings.angle,
             self.settings.width,
             self.settings.height,
+            self.theme,
         );
         self.dirty = false;
         if self.map_key == Some(key) && self.texture.is_some() {
@@ -136,10 +195,11 @@ impl FoldApp {
         let g = build_map(&self.profiles, &self.settings);
         let (min, max) = bounds(&g);
         let span = (max - min).max(1e-6);
-        let mut img = egui::ColorImage::new([g.width, g.height], Color32::from_rgb(70, 96, 205));
+        let theme = self.theme;
+        let mut img = egui::ColorImage::new([g.width, g.height], scale_color(0.0, theme));
         for (i, &d) in g.data.iter().enumerate() {
             if d.is_finite() {
-                img.pixels[i] = palette(((d - min) / span).clamp(0.0, 1.0));
+                img.pixels[i] = palette(((d - min) / span).clamp(0.0, 1.0), theme);
             }
         }
         self.last_ms = t.elapsed().as_secs_f64() * 1000.0;
@@ -224,15 +284,16 @@ fn bounds(g: &MapGrid) -> (f32, f32) {
 }
 
 /// Цвет одного из 21 бина шкалы (ровно как в original).
-fn palette(u: f32) -> Color32 {
+fn palette(u: f32, theme: usize) -> Color32 {
     let band = (u * BANDS as f32) as usize;
     let t = ((band.min(BANDS - 1) as f32 + 0.5) / BANDS as f32).clamp(0.0, 1.0);
-    scale_color(t)
+    scale_color(t, theme)
 }
 
-/// Интерполяция эталонных стопов цветовой шкалы.
-fn scale_color(t: f32) -> Color32 {
-    for w in SCALE_STOPS.windows(2) {
+/// Интерполяция стопов выбранной палитры.
+fn scale_color(t: f32, theme: usize) -> Color32 {
+    let stops = THEMES[theme].stops;
+    for w in stops.windows(2) {
         if t <= w[1].0 {
             let k = (t - w[0].0) / (w[1].0 - w[0].0);
             let c = [0, 1, 2].map(|i| {
@@ -241,7 +302,7 @@ fn scale_color(t: f32) -> Color32 {
             return Color32::from_rgb(c[0], c[1], c[2]);
         }
     }
-    let c = SCALE_STOPS[SCALE_STOPS.len() - 1].1;
+    let c = stops[stops.len() - 1].1;
     Color32::from_rgb(c[0], c[1], c[2])
 }
 
@@ -264,8 +325,8 @@ fn wiggle(ui: &egui::Ui, cx: f32, sec: Rect, pick_time: f64) {
     ));
 }
 
-/// Рисует легенду-шкалу внизу: 21 полоса, подписи и тонкая рамка.
-fn color_legend(ui: &egui::Ui, rr: impl Fn(f32, f32, f32, f32) -> Rect) {
+/// Рисует легенду-шкалу внизу: 21 полоса, подписи H min / H max и тонкая рамка.
+fn color_legend(ui: &egui::Ui, rr: impl Fn(f32, f32, f32, f32) -> Rect, theme: usize) {
     let bar = rr(LEGEND_X0, LEGEND_Y0, LEGEND_X1, LEGEND_Y1);
     let bw = bar.width() / BANDS as f32;
     for i in 0..BANDS {
@@ -273,8 +334,11 @@ fn color_legend(ui: &egui::Ui, rr: impl Fn(f32, f32, f32, f32) -> Rect) {
             Pos2::new(bar.min.x + i as f32 * bw, bar.min.y),
             Pos2::new(bar.min.x + (i + 1) as f32 * bw, bar.max.y),
         );
-        ui.painter()
-            .rect_filled(cell, 0.0, scale_color((i as f32 + 0.5) / BANDS as f32));
+        ui.painter().rect_filled(
+            cell,
+            0.0,
+            scale_color((i as f32 + 0.5) / BANDS as f32, theme),
+        );
     }
     ui.painter()
         .rect_stroke(bar, 0.0, Stroke::new(1.0_f32, Color32::from_gray(120)));
@@ -300,106 +364,65 @@ fn centered(ui: &egui::Ui, x: f32, y: f32, s: impl Into<String>, size: f32, colo
     );
 }
 
+/// Поле ввода в стиле VCL: белая подложка, утопленная обводка, заметный фокус.
+/// `frame(false)` у TextEdit убран — рамка рисуется здесь и не мигает при вводе.
 fn edit(ui: &mut egui::Ui, rect: Rect, val: &mut String, id: &'static str) -> bool {
+    let id = egui::Id::new(id);
+    let focused = ui.memory(|m| m.has_focus(id));
+    ui.painter().rect_filled(rect, 0.0, Color32::WHITE);
+
+    let shadow = if focused {
+        Color32::from_rgb(40, 110, 200)
+    } else {
+        Color32::from_gray(120)
+    };
+    let light = Color32::from_gray(250);
+    ui.painter().line_segment(
+        [rect.min, Pos2::new(rect.max.x, rect.min.y)],
+        Stroke::new(1.0_f32, shadow),
+    );
+    ui.painter().line_segment(
+        [rect.min, Pos2::new(rect.min.x, rect.max.y)],
+        Stroke::new(1.0_f32, shadow),
+    );
+    ui.painter().line_segment(
+        [Pos2::new(rect.min.x, rect.max.y), rect.max],
+        Stroke::new(1.0_f32, light),
+    );
+    ui.painter().line_segment(
+        [Pos2::new(rect.max.x, rect.min.y), rect.max],
+        Stroke::new(1.0_f32, light),
+    );
+
+    let inner = Rect::from_min_max(
+        Pos2::new(rect.min.x + 3.0, rect.min.y + 2.0),
+        Pos2::new(rect.max.x - 3.0, rect.max.y - 2.0),
+    );
     ui.put(
-        rect,
+        inner,
         egui::TextEdit::singleline(val)
-            .id(egui::Id::new(id))
+            .id(id)
             .frame(false)
             .font(FontId::proportional(11.0)),
     )
     .changed()
 }
 
-fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
-    let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
-    Color32::from_rgb(m(a.r(), b.r()), m(a.g(), b.g()), m(a.b(), b.b()))
-}
-
-fn vgrad(ui: &egui::Ui, r: Rect, top: Color32, bottom: Color32) {
-    const N: usize = 6;
-    for i in 0..N {
-        let y0 = r.min.y + r.height() * i as f32 / N as f32;
-        let y1 = r.min.y + r.height() * (i + 1) as f32 / N as f32;
-        let c = lerp_color(top, bottom, i as f32 / (N - 1) as f32);
-        ui.painter().rect_filled(
-            Rect::from_min_max(Pos2::new(r.min.x, y0), Pos2::new(r.max.x, y1)),
-            0.0,
-            c,
-        );
-    }
-}
-
-/// Кнопка в стиле Delphi 2007: мягкий вертикальный градиент, тонкий бевель,
-/// никакой кричащей подсветки. Рисуется painter'ом — не крадёт фокус и не
-/// выбивается из общего плоского интерфейса.
+/// Обычная egui-кнопка с фиксированным_fill/stroke: нет градиентных швов,
+/// нет артефактов при масштабировании, работает фокус с клавиатуры.
 fn button(ui: &mut egui::Ui, rect: Rect, id: &'static str, label: &str) -> bool {
-    let resp = ui.interact(rect, egui::Id::new(id), Sense::click());
-    let pressed = resp.is_pointer_button_down_on();
-    let (top, bottom, border) = if pressed {
-        (
-            Color32::from_gray(206),
-            Color32::from_gray(228),
-            Color32::from_gray(90),
+    let mut clicked = false;
+    ui.push_id(id, |ui| {
+        let b = egui::Button::new(
+            egui::RichText::new(label)
+                .size(11.0)
+                .color(Color32::from_gray(25)),
         )
-    } else if resp.hovered() {
-        (
-            Color32::from_gray(248),
-            Color32::from_gray(229),
-            Color32::from_gray(105),
-        )
-    } else {
-        (
-            Color32::from_gray(240),
-            Color32::from_gray(219),
-            Color32::from_gray(132),
-        )
-    };
-
-    let inner = Rect::from_min_max(
-        Pos2::new(rect.min.x + 1.0, rect.min.y + 1.0),
-        Pos2::new(rect.max.x - 1.0, rect.max.y - 1.0),
-    );
-    vgrad(ui, inner, top, bottom);
-    // верх/лево — светлый блик, низ/право — тень
-    ui.painter().line_segment(
-        [
-            Pos2::new(rect.min.x + 1.0, rect.min.y + 1.0),
-            Pos2::new(rect.max.x - 1.0, rect.min.y + 1.0),
-        ],
-        Stroke::new(1.0_f32, Color32::from_gray(252)),
-    );
-    ui.painter().line_segment(
-        [
-            Pos2::new(rect.min.x + 1.0, rect.min.y + 1.0),
-            Pos2::new(rect.min.x + 1.0, rect.max.y - 1.0),
-        ],
-        Stroke::new(1.0_f32, Color32::from_gray(250)),
-    );
-    ui.painter().line_segment(
-        [
-            Pos2::new(rect.min.x + 1.0, rect.max.y - 1.0),
-            Pos2::new(rect.max.x - 1.0, rect.max.y - 1.0),
-        ],
-        Stroke::new(1.0_f32, Color32::from_gray(170)),
-    );
-    ui.painter().line_segment(
-        [
-            Pos2::new(rect.max.x - 1.0, rect.min.y + 1.0),
-            Pos2::new(rect.max.x - 1.0, rect.max.y - 1.0),
-        ],
-        Stroke::new(1.0_f32, Color32::from_gray(170)),
-    );
-    ui.painter()
-        .rect_stroke(rect, 0.0, Stroke::new(1.0_f32, border));
-    ui.painter().text(
-        rect.center() - egui::vec2(0.0, 0.5),
-        egui::Align2::CENTER_CENTER,
-        label,
-        FontId::proportional(11.0),
-        Color32::from_gray(25),
-    );
-    resp.clicked()
+        .fill(Color32::from_gray(238))
+        .stroke(Stroke::new(1.0_f32, Color32::from_gray(125)));
+        clicked = ui.put(rect, b).clicked();
+    });
+    clicked
 }
 
 impl eframe::App for FoldApp {
@@ -407,6 +430,46 @@ impl eframe::App for FoldApp {
         if self.dirty {
             self.recalc(ctx);
         }
+
+        // Tab / Shift+Tab: явный обход четырёх полей левой панели.
+        let shift = ctx.input(|i| {
+            i.events.iter().find_map(|e| match e {
+                egui::Event::Key {
+                    key: egui::Key::Tab,
+                    pressed: true,
+                    modifiers,
+                    ..
+                } => Some(modifiers.shift),
+                _ => None,
+            })
+        });
+        if let Some(shift) = shift {
+            ctx.input_mut(|i| {
+                i.events.retain(|e| {
+                    !matches!(
+                        e,
+                        egui::Event::Key {
+                            key: egui::Key::Tab,
+                            ..
+                        }
+                    )
+                })
+            });
+            let cur = ctx.memory(|m| m.focused());
+            let pos = cur.and_then(|id| FIELDS.iter().position(|f| id == egui::Id::new(*f)));
+            let next = match pos {
+                Some(i) => (i + if shift { FIELDS.len() - 1 } else { 1 }) % FIELDS.len(),
+                None => {
+                    if shift {
+                        FIELDS.len() - 1
+                    } else {
+                        0
+                    }
+                }
+            };
+            ctx.memory_mut(|m| m.request_focus(egui::Id::new(FIELDS[next])));
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             let r = ui.max_rect();
             // масштабирование при изменении размера окна
@@ -417,6 +480,7 @@ impl eframe::App for FoldApp {
             let rr = |x0: f32, y0: f32, x1: f32, y1: f32| {
                 Rect::from_min_max(Pos2::new(px(x0), py(y0)), Pos2::new(px(x1), py(y1)))
             };
+            let theme = self.theme;
 
             ui.painter().rect_filled(r, 0.0, Color32::from_gray(245));
 
@@ -451,6 +515,15 @@ impl eframe::App for FoldApp {
                 self.io_text = serialize(&self.profiles, &self.settings);
                 self.io_error.clear();
                 self.show_io = true;
+            }
+            // Дополнительные кнопки справа — не задевают раскладку original.
+            if button(ui, rr(712.0, 24.0, 790.0, 44.0), "btn_theme", "Цвет") {
+                self.theme = (self.theme + 1) % THEMES.len();
+                self.dirty = true;
+                self.status = format!("Палитра: {}", THEMES[self.theme].name);
+            }
+            if button(ui, rr(794.0, 24.0, 880.0, 44.0), "btn_help", "Справка") {
+                self.show_help = !self.show_help;
             }
 
             // ---- левый столбец ----
@@ -565,6 +638,14 @@ impl eframe::App for FoldApp {
             );
             text(
                 ui,
+                px(160.0),
+                py(64.0),
+                "Y, м",
+                11.0,
+                Color32::from_gray(40),
+            );
+            text(
+                ui,
                 px(702.0),
                 py(64.0),
                 "X, м",
@@ -574,7 +655,7 @@ impl eframe::App for FoldApp {
 
             let map_rect = rr(180.0, MAP_TOP, 880.0, MAP_BOTTOM);
             ui.painter()
-                .rect_filled(map_rect, 0.0, Color32::from_rgb(235, 242, 245));
+                .rect_filled(map_rect, 0.0, scale_color(0.0, theme));
             if let Some(tex) = &self.texture {
                 ui.painter().image(
                     tex.id(),
@@ -583,6 +664,8 @@ impl eframe::App for FoldApp {
                     Color32::WHITE,
                 );
             }
+            // Сетка original: 8 вертикальных делений и 10 горизонтальных,
+            // шаг по Y = 349/10 ≈ 35 px (совпадает с пиксельным разбором).
             for i in 0..=8 {
                 let x = map_rect.min.x + map_rect.width() * i as f32 / 8.0;
                 ui.painter().line_segment(
@@ -590,11 +673,23 @@ impl eframe::App for FoldApp {
                     Stroke::new(0.7_f32, Color32::from_gray(110)),
                 );
             }
-            for i in 0..=6 {
-                let y = map_rect.min.y + map_rect.height() * i as f32 / 6.0;
+            for i in 0..=10 {
+                let y = map_rect.min.y + map_rect.height() * i as f32 / 10.0;
                 ui.painter().line_segment(
                     [Pos2::new(map_rect.min.x, y), Pos2::new(map_rect.max.x, y)],
                     Stroke::new(0.7_f32, Color32::from_gray(110)),
+                );
+            }
+            // Подписи оси X — через деление, чтобы не засорять карту.
+            for i in [2usize, 4, 6, 8] {
+                let x = map_rect.min.x + map_rect.width() * i as f32 / 8.0;
+                centered(
+                    ui,
+                    x,
+                    map_rect.min.y + 2.0,
+                    format!("{}", i * 1000),
+                    8.0,
+                    Color32::from_gray(45),
                 );
             }
             for (i, p) in self.profiles.iter().enumerate() {
@@ -644,8 +739,24 @@ impl eframe::App for FoldApp {
                 self.drag_cur = None;
             }
 
-            // ---- цветовая шкала (была потеряна в предыдущей версии) ----
-            color_legend(ui, &rr);
+            // ---- цветовая шкала + подписи H min / H max ----
+            color_legend(ui, &rr, theme);
+            text(
+                ui,
+                px(400.0),
+                py(441.0),
+                "H min",
+                10.0,
+                Color32::from_gray(50),
+            );
+            text(
+                ui,
+                px(660.0),
+                py(441.0),
+                "H max",
+                10.0,
+                Color32::from_gray(50),
+            );
 
             // ---- временной разрез ----
             text(
@@ -658,7 +769,7 @@ impl eframe::App for FoldApp {
             );
             text(
                 ui,
-                px(800.0),
+                px(840.0),
                 py(441.0),
                 "трассы",
                 11.0,
@@ -691,11 +802,20 @@ impl eframe::App for FoldApp {
                     Color32::from_gray(60),
                 );
             }
-            for i in 0..=4 {
-                let y = sec.min.y + sec.height() * i as f32 / 4.0;
+            // 10 делений по времени — как в original (шаг ≈17 px).
+            for i in 0..=10 {
+                let y = sec.min.y + sec.height() * i as f32 / 10.0;
                 ui.painter().line_segment(
                     [Pos2::new(sec.min.x, y), Pos2::new(sec.max.x, y)],
                     Stroke::new(0.6_f32, Color32::from_gray(210)),
+                );
+                text(
+                    ui,
+                    sec.min.x + 2.0,
+                    y + 1.0,
+                    format!("{:.2}", 3.6 - 0.04 * i as f64),
+                    8.0,
+                    Color32::from_gray(130),
                 );
             }
             let picks: Vec<Pick> = self
@@ -767,6 +887,26 @@ impl eframe::App for FoldApp {
                     .show(ctx, |ui| {
                         ui.label("Fold — структурная карта отражающего горизонта");
                         ui.label(format!("Расчёт: {:.3} мс", self.last_ms));
+                        ui.label("Rust version Fold by Lion 2026");
+                    });
+            }
+
+            if self.show_help {
+                egui::Window::new("Справка")
+                    .open(&mut self.show_help)
+                    .default_size([430.0, 300.0])
+                    .show(ctx, |ui| {
+                        ui.label("Fold — быстрый порт программы 2007 года.");
+                        ui.separator();
+                        ui.label("V ср — средняя скорость, f — параметр сигнала.");
+                        ui.label("Профиль задаётся перетаскиванием мыши по карте.");
+                        ui.label("Пик на временном разрезе ставится кликом мыши.");
+                        ui.label("Назад / Далее — листание профилей.");
+                        ui.label("Строка — экспорт и импорт готовой строки данных.");
+                        ui.label("Цвет — переключение палитры карты и легенды.");
+                        ui.separator();
+                        ui.label("Tab / Shift+Tab — переход между полями ввода.");
+                        ui.label("Оригинал — забытый эксперимент. Лицензий и обещаний нет.");
                     });
             }
 
