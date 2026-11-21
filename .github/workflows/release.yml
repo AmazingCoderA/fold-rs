@@ -137,6 +137,6 @@ jobs:
             - `fold-rs-PKGBUILD`, `fold-rs-AUR-README.md` — файлы для AUR (`fold-rs-git`)
             - `SHA256SUMS.txt` — контрольные суммы
 
-            Оригинал: Viktor Romanov, 2007. Лицензий и обещаний нет.
+            Забытый эксперимент 2007 года. Лицензий и обещаний нет.
           files: |
             assets/*

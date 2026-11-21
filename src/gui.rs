@@ -9,6 +9,7 @@
 //!   - нижняя область: "Временной разрез" с осью трасс 1..10
 
 use crate::grid::{build_map, MapGrid};
+use crate::io::{parse, serialize};
 use crate::model::{Pick, Profile, Settings, MAP_HEIGHT_M, MAP_WIDTH_M};
 use egui::{Color32, FontId, Pos2, Rect, Sense, Stroke, TextureHandle};
 
@@ -19,6 +20,23 @@ const MAP_TOP: f32 = 83.0;
 const MAP_BOTTOM: f32 = 432.0;
 const SEC_TOP: f32 = 456.0;
 const SEC_BOTTOM: f32 = 630.0;
+
+/// Цветовая шкала структурной карты из эталонного скриншота:
+/// x=440..653, y=436..453, 21 полоса, синий → голубой → зелёный → жёлтый → красный.
+const LEGEND_X0: f32 = 440.0;
+const LEGEND_X1: f32 = 653.0;
+const LEGEND_Y0: f32 = 436.0;
+const LEGEND_Y1: f32 = 453.0;
+const BANDS: usize = 21;
+
+/// Точные RGB-стопы шкалы, снятые пиксель-в-пиксель со скриншота.
+const SCALE_STOPS: [(f32, [u8; 3]); 5] = [
+    (0.0, [70, 96, 205]),
+    (0.25, [82, 204, 188]),
+    (0.50, [82, 203, 80]),
+    (0.75, [202, 202, 63]),
+    (1.0, [198, 80, 64]),
+];
 
 pub struct FoldApp {
     profiles: Vec<Profile>,
@@ -37,6 +55,12 @@ pub struct FoldApp {
     drag_start: Option<Pos2>,
     drag_cur: Option<Pos2>,
     show_about: bool,
+    show_io: bool,
+    io_text: String,
+    io_error: String,
+    /// Ключ, при котором текстура уже пересчитана: (угол, ширина, высота).
+    /// Пока ключ не изменился — карту не трогаем вообще (не теряем кадры).
+    map_key: Option<(f64, usize, usize)>,
 }
 
 impl FoldApp {
@@ -88,23 +112,46 @@ impl FoldApp {
             drag_start: None,
             drag_cur: None,
             show_about: false,
+            show_io: false,
+            io_text: String::new(),
+            io_error: String::new(),
+            map_key: None,
         }
     }
 
     fn recalc(&mut self, ctx: &egui::Context) {
-        let t = std::time::Instant::now();
-        self.grid = Some(build_map(&self.profiles, &self.settings));
-        self.last_ms = t.elapsed().as_secs_f64() * 1000.0;
-        if let Some(g) = &self.grid {
-            let mut img = egui::ColorImage::new([g.width, g.height], Color32::from_rgb(20, 40, 60));
-            for (i, &d) in g.data.iter().enumerate() {
-                if d.is_finite() {
-                    img.pixels[i] = palette(d, g);
-                }
-            }
-            self.texture = Some(ctx.load_texture("struct_map", img, egui::TextureOptions::LINEAR));
-        }
+        // Карта зависит только от угла и размеров сетки. Скорость, качество,
+        // координаты профиля и пики на неё не влияют — не пересчитываем зря.
+        let key = (
+            self.settings.angle,
+            self.settings.width,
+            self.settings.height,
+        );
         self.dirty = false;
+        if self.map_key == Some(key) && self.texture.is_some() {
+            return;
+        }
+
+        let t = std::time::Instant::now();
+        let g = build_map(&self.profiles, &self.settings);
+        let (min, max) = bounds(&g);
+        let span = (max - min).max(1e-6);
+        let mut img = egui::ColorImage::new([g.width, g.height], Color32::from_rgb(70, 96, 205));
+        for (i, &d) in g.data.iter().enumerate() {
+            if d.is_finite() {
+                img.pixels[i] = palette(((d - min) / span).clamp(0.0, 1.0));
+            }
+        }
+        self.last_ms = t.elapsed().as_secs_f64() * 1000.0;
+        self.grid = Some(g);
+        match &mut self.texture {
+            Some(tex) => tex.set(img, egui::TextureOptions::LINEAR),
+            None => {
+                self.texture =
+                    Some(ctx.load_texture("struct_map", img, egui::TextureOptions::LINEAR));
+            }
+        }
+        self.map_key = Some(key);
     }
 
     fn add_profile(&mut self, x0: f32, y0: f32, x1: f32, y1: f32) {
@@ -157,7 +204,8 @@ impl FoldApp {
     }
 }
 
-fn palette(d: f32, g: &MapGrid) -> Color32 {
+/// Диапазон глубин считается один раз за пересчёт, а не для каждого пикселя.
+fn bounds(g: &MapGrid) -> (f32, f32) {
     let mut min = f32::INFINITY;
     let mut max = f32::NEG_INFINITY;
     for &v in &g.data {
@@ -167,31 +215,69 @@ fn palette(d: f32, g: &MapGrid) -> Color32 {
         }
     }
     if !min.is_finite() {
-        min = 0.0;
-        max = 1.0;
+        return (0.0, 1.0);
     }
     if (max - min).abs() < 1e-6 {
         max = min + 1.0;
     }
-    let u = ((d - min) / (max - min)).clamp(0.0, 1.0);
-    // Точные RGB-значения пяти доминирующих цветов скриншота
-    // (в файле разметки они записаны как BGR).
-    let stops: [(f32, [u8; 3]); 5] = [
-        (0.00, [82, 203, 183]),
-        (0.25, [80, 203, 102]),
-        (0.50, [134, 203, 62]),
-        (0.75, [185, 203, 62]),
-        (1.00, [202, 171, 62]),
-    ];
-    for w in stops.windows(2) {
-        if u <= w[1].0 {
-            let t = (u - w[0].0) / (w[1].0 - w[0].0);
-            let c = [0, 1, 2]
-                .map(|i| (w[0].1[i] as f32 + (w[1].1[i] as f32 - w[0].1[i] as f32) * t) as u8);
+    (min, max)
+}
+
+/// Цвет одного из 21 бина шкалы (ровно как в original).
+fn palette(u: f32) -> Color32 {
+    let band = (u * BANDS as f32) as usize;
+    let t = ((band.min(BANDS - 1) as f32 + 0.5) / BANDS as f32).clamp(0.0, 1.0);
+    scale_color(t)
+}
+
+/// Интерполяция эталонных стопов цветовой шкалы.
+fn scale_color(t: f32) -> Color32 {
+    for w in SCALE_STOPS.windows(2) {
+        if t <= w[1].0 {
+            let k = (t - w[0].0) / (w[1].0 - w[0].0);
+            let c = [0, 1, 2].map(|i| {
+                (w[0].1[i] as f32 + (w[1].1[i] as f32 - w[0].1[i] as f32) * k).round() as u8
+            });
             return Color32::from_rgb(c[0], c[1], c[2]);
         }
     }
-    Color32::from_rgb(202, 171, 62)
+    let c = SCALE_STOPS[SCALE_STOPS.len() - 1].1;
+    Color32::from_rgb(c[0], c[1], c[2])
+}
+
+/// Сейсмическая трасса «виггл»: чёрная волна вокруг своей оси с пиком на времени pick.
+fn wiggle(ui: &egui::Ui, cx: f32, sec: Rect, pick_time: f64) {
+    const N: usize = 72;
+    let mut pts = Vec::with_capacity(N + 1);
+    for k in 0..=N {
+        let fy = k as f32 / N as f32;
+        let y = sec.min.y + fy * sec.height();
+        let t = 3.2_f64 + (1.0 - f64::from(fy)) * 0.4;
+        let dt = t - pick_time;
+        let env = (-dt * dt / 0.00045).exp() as f32;
+        let wave = (dt * 240.0).sin() as f32;
+        pts.push(Pos2::new(cx + env * wave * 12.0, y));
+    }
+    ui.painter().add(egui::Shape::line(
+        pts,
+        Stroke::new(1.0_f32, Color32::from_gray(35)),
+    ));
+}
+
+/// Рисует легенду-шкалу внизу: 21 полоса, подписи и тонкая рамка.
+fn color_legend(ui: &egui::Ui, rr: impl Fn(f32, f32, f32, f32) -> Rect) {
+    let bar = rr(LEGEND_X0, LEGEND_Y0, LEGEND_X1, LEGEND_Y1);
+    let bw = bar.width() / BANDS as f32;
+    for i in 0..BANDS {
+        let cell = Rect::from_min_max(
+            Pos2::new(bar.min.x + i as f32 * bw, bar.min.y),
+            Pos2::new(bar.min.x + (i + 1) as f32 * bw, bar.max.y),
+        );
+        ui.painter()
+            .rect_filled(cell, 0.0, scale_color((i as f32 + 0.5) / BANDS as f32));
+    }
+    ui.painter()
+        .rect_stroke(bar, 0.0, Stroke::new(1.0_f32, Color32::from_gray(120)));
 }
 
 fn text(ui: &egui::Ui, x: f32, y: f32, s: impl Into<String>, size: f32, color: Color32) {
@@ -225,15 +311,95 @@ fn edit(ui: &mut egui::Ui, rect: Rect, val: &mut String, id: &'static str) -> bo
     .changed()
 }
 
-fn button(ui: &mut egui::Ui, rect: Rect, label: &str) -> bool {
-    ui.put(
-        rect,
-        egui::Button::new(egui::RichText::new(label).size(11.0).color(Color32::BLACK))
-            .frame(true)
-            .fill(Color32::from_gray(228))
-            .stroke(Stroke::new(1.0_f32, Color32::from_gray(110))),
-    )
-    .clicked()
+fn lerp_color(a: Color32, b: Color32, t: f32) -> Color32 {
+    let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
+    Color32::from_rgb(m(a.r(), b.r()), m(a.g(), b.g()), m(a.b(), b.b()))
+}
+
+fn vgrad(ui: &egui::Ui, r: Rect, top: Color32, bottom: Color32) {
+    const N: usize = 6;
+    for i in 0..N {
+        let y0 = r.min.y + r.height() * i as f32 / N as f32;
+        let y1 = r.min.y + r.height() * (i + 1) as f32 / N as f32;
+        let c = lerp_color(top, bottom, i as f32 / (N - 1) as f32);
+        ui.painter().rect_filled(
+            Rect::from_min_max(Pos2::new(r.min.x, y0), Pos2::new(r.max.x, y1)),
+            0.0,
+            c,
+        );
+    }
+}
+
+/// Кнопка в стиле Delphi 2007: мягкий вертикальный градиент, тонкий бевель,
+/// никакой кричащей подсветки. Рисуется painter'ом — не крадёт фокус и не
+/// выбивается из общего плоского интерфейса.
+fn button(ui: &mut egui::Ui, rect: Rect, id: &'static str, label: &str) -> bool {
+    let resp = ui.interact(rect, egui::Id::new(id), Sense::click());
+    let pressed = resp.is_pointer_button_down_on();
+    let (top, bottom, border) = if pressed {
+        (
+            Color32::from_gray(206),
+            Color32::from_gray(228),
+            Color32::from_gray(90),
+        )
+    } else if resp.hovered() {
+        (
+            Color32::from_gray(248),
+            Color32::from_gray(229),
+            Color32::from_gray(105),
+        )
+    } else {
+        (
+            Color32::from_gray(240),
+            Color32::from_gray(219),
+            Color32::from_gray(132),
+        )
+    };
+
+    let inner = Rect::from_min_max(
+        Pos2::new(rect.min.x + 1.0, rect.min.y + 1.0),
+        Pos2::new(rect.max.x - 1.0, rect.max.y - 1.0),
+    );
+    vgrad(ui, inner, top, bottom);
+    // верх/лево — светлый блик, низ/право — тень
+    ui.painter().line_segment(
+        [
+            Pos2::new(rect.min.x + 1.0, rect.min.y + 1.0),
+            Pos2::new(rect.max.x - 1.0, rect.min.y + 1.0),
+        ],
+        Stroke::new(1.0_f32, Color32::from_gray(252)),
+    );
+    ui.painter().line_segment(
+        [
+            Pos2::new(rect.min.x + 1.0, rect.min.y + 1.0),
+            Pos2::new(rect.min.x + 1.0, rect.max.y - 1.0),
+        ],
+        Stroke::new(1.0_f32, Color32::from_gray(250)),
+    );
+    ui.painter().line_segment(
+        [
+            Pos2::new(rect.min.x + 1.0, rect.max.y - 1.0),
+            Pos2::new(rect.max.x - 1.0, rect.max.y - 1.0),
+        ],
+        Stroke::new(1.0_f32, Color32::from_gray(170)),
+    );
+    ui.painter().line_segment(
+        [
+            Pos2::new(rect.max.x - 1.0, rect.min.y + 1.0),
+            Pos2::new(rect.max.x - 1.0, rect.max.y - 1.0),
+        ],
+        Stroke::new(1.0_f32, Color32::from_gray(170)),
+    );
+    ui.painter()
+        .rect_stroke(rect, 0.0, Stroke::new(1.0_f32, border));
+    ui.painter().text(
+        rect.center() - egui::vec2(0.0, 0.5),
+        egui::Align2::CENTER_CENTER,
+        label,
+        FontId::proportional(11.0),
+        Color32::from_gray(25),
+    );
+    resp.clicked()
 }
 
 impl eframe::App for FoldApp {
@@ -264,16 +430,27 @@ impl eframe::App for FoldApp {
                 ],
                 Stroke::new(1.0_f32, Color32::from_gray(180)),
             );
-            if button(ui, rr(6.0, 24.0, 76.0, 44.0), "Структура") {
+            if button(ui, rr(6.0, 24.0, 76.0, 44.0), "btn_about", "Структура") {
                 self.show_about = !self.show_about;
             }
-            if button(ui, rr(80.0, 24.0, 132.0, 44.0), "Профили") && !self.profiles.is_empty()
+            if button(ui, rr(80.0, 24.0, 132.0, 44.0), "btn_profiles", "Профили")
+                && !self.profiles.is_empty()
             {
                 let next = (self.selected + 1) % self.profiles.len();
                 self.select_profile(next);
             }
-            if button(ui, rr(136.0, 24.0, 218.0, 44.0), "Стереть таблицу") {
+            if button(
+                ui,
+                rr(136.0, 24.0, 218.0, 44.0),
+                "btn_clear",
+                "Стереть таблицу",
+            ) {
                 self.clear_table();
+            }
+            if button(ui, rr(222.0, 24.0, 300.0, 44.0), "btn_io", "Строка") {
+                self.io_text = serialize(&self.profiles, &self.settings);
+                self.io_error.clear();
+                self.show_io = true;
             }
 
             // ---- левый столбец ----
@@ -302,8 +479,7 @@ impl eframe::App for FoldApp {
             text(ui, px(17.0), py(110.0), "V ср", 12.0, Color32::BLACK);
             if edit(ui, rr(66.0, 106.0, 124.0, 124.0), &mut self.v, "v_field") {
                 if let Ok(x) = self.v.parse() {
-                    self.settings.velocity = x;
-                    self.dirty = true;
+                    self.settings.velocity = x; // в карту не входит — текстуру не трогаем
                 }
             }
             text(ui, px(18.0), py(140.0), "f", 12.0, Color32::BLACK);
@@ -319,13 +495,9 @@ impl eframe::App for FoldApp {
             );
             text(ui, px(35.0), py(192.0), "Профиль №", 12.0, Color32::BLACK);
             text(ui, px(37.0), py(254.0), "X", 12.0, Color32::BLACK);
-            if edit(ui, rr(91.0, 248.0, 151.0, 266.0), &mut self.xg, "xg_field") {
-                self.dirty = true;
-            }
+            edit(ui, rr(91.0, 248.0, 151.0, 266.0), &mut self.xg, "xg_field");
             text(ui, px(37.0), py(277.0), "Y", 12.0, Color32::BLACK);
-            if edit(ui, rr(97.0, 271.0, 151.0, 289.0), &mut self.yg, "yg_field") {
-                self.dirty = true;
-            }
+            edit(ui, rr(97.0, 271.0, 151.0, 289.0), &mut self.yg, "yg_field");
 
             text(
                 ui,
@@ -347,15 +519,21 @@ impl eframe::App for FoldApp {
                     );
                 }
             }
-            if button(ui, rr(15.0, 566.0, 82.0, 585.0), "Назад") && self.selected > 0 {
+            if button(ui, rr(15.0, 566.0, 82.0, 585.0), "btn_prev", "Назад") && self.selected > 0
+            {
                 self.select_profile(self.selected - 1);
             }
-            if button(ui, rr(88.0, 566.0, 155.0, 585.0), "Далее")
+            if button(ui, rr(88.0, 566.0, 155.0, 585.0), "btn_next", "Далее")
                 && self.selected + 1 < self.profiles.len()
             {
                 self.select_profile(self.selected + 1);
             }
-            if button(ui, rr(15.0, 589.0, 155.0, 608.0), "Стереть таблицу") {
+            if button(
+                ui,
+                rr(15.0, 589.0, 155.0, 608.0),
+                "btn_clear2",
+                "Стереть таблицу",
+            ) {
                 self.clear_table();
             }
 
@@ -466,6 +644,9 @@ impl eframe::App for FoldApp {
                 self.drag_cur = None;
             }
 
+            // ---- цветовая шкала (была потеряна в предыдущей версии) ----
+            color_legend(ui, &rr);
+
             // ---- временной разрез ----
             text(
                 ui,
@@ -477,7 +658,7 @@ impl eframe::App for FoldApp {
             );
             text(
                 ui,
-                px(660.0),
+                px(800.0),
                 py(441.0),
                 "трассы",
                 11.0,
@@ -487,6 +668,14 @@ impl eframe::App for FoldApp {
             ui.painter().rect_filled(sec, 0.0, Color32::from_gray(252));
             ui.painter()
                 .rect_stroke(sec, 0.0, Stroke::new(1.0_f32, Color32::from_gray(150)));
+            text(
+                ui,
+                px(184.0),
+                py(472.0),
+                "t, с",
+                10.0,
+                Color32::from_gray(70),
+            );
             for i in 1..=10 {
                 let x = sec.min.x + sec.width() * i as f32 / 11.0;
                 ui.painter().line_segment(
@@ -514,21 +703,18 @@ impl eframe::App for FoldApp {
                 .get(self.selected)
                 .map(|p| p.picks.clone())
                 .unwrap_or_default();
-            if picks.len() > 1 {
-                let pts: Vec<Pos2> = picks
-                    .iter()
-                    .map(|p| {
-                        Pos2::new(
-                            sec.min.x + (p.trace / 11.0) as f32 * sec.width(),
-                            sec.max.y
-                                - ((p.time - 3.2) / 0.4).clamp(0.0, 1.0) as f32 * sec.height(),
-                        )
-                    })
-                    .collect();
-                ui.painter().add(egui::Shape::line(
-                    pts,
-                    Stroke::new(2.0_f32, Color32::from_rgb(220, 70, 30)),
-                ));
+            // Виггл-трассы вместо одной ломаной — как на оригинальном разрезе.
+            for i in 1..=10 {
+                if let Some(pk) = picks.iter().min_by(|a, b| {
+                    ((a.trace - i as f64).abs())
+                        .partial_cmp(&((b.trace - i as f64).abs()))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                }) {
+                    if (pk.trace - i as f64).abs() <= 1.5 {
+                        let cx = sec.min.x + sec.width() * i as f32 / 11.0;
+                        wiggle(ui, cx, sec, pk.time);
+                    }
+                }
             }
             for p in &picks {
                 let c = Pos2::new(
@@ -560,9 +746,9 @@ impl eframe::App for FoldApp {
 
             text(
                 ui,
-                px(772.0),
+                px(700.0),
                 py(635.0),
-                "Viktor Romanov, 2007",
+                "Rust version Fold by Lion 2026",
                 11.0,
                 Color32::from_gray(90),
             );
@@ -582,6 +768,57 @@ impl eframe::App for FoldApp {
                         ui.label("Fold — структурная карта отражающего горизонта");
                         ui.label(format!("Расчёт: {:.3} мс", self.last_ms));
                     });
+            }
+
+            let mut close_io = false;
+            if self.show_io {
+                egui::Window::new("Готовая строка данных")
+                    .open(&mut self.show_io)
+                    .default_size([540.0, 360.0])
+                    .show(ctx, |ui| {
+                        ui.label(
+                            "Скопируйте готовую строку или вставьте свою и нажмите «Применить».",
+                        );
+                        ui.add_sized(
+                            [500.0, 240.0],
+                            egui::TextEdit::multiline(&mut self.io_text)
+                                .font(FontId::monospace(11.0))
+                                .desired_rows(12),
+                        );
+                        if !self.io_error.is_empty() {
+                            ui.colored_label(Color32::from_rgb(180, 40, 30), self.io_error.clone());
+                        }
+                        ui.horizontal(|ui| {
+                            if ui.button("Скопировать").clicked() {
+                                ui.ctx().copy_text(self.io_text.clone());
+                            }
+                            if ui.button("Применить").clicked() {
+                                match parse(&self.io_text) {
+                                    Ok((profiles, settings)) => {
+                                        let vel = format!("{:.0}", settings.velocity);
+                                        let qual = format!("{:.0}", settings.quality);
+                                        self.profiles = profiles;
+                                        self.settings = settings;
+                                        self.selected = 0;
+                                        self.v = vel;
+                                        self.fval = qual;
+                                        self.map_key = None;
+                                        self.dirty = true;
+                                        self.io_error.clear();
+                                        self.status =
+                                            format!("Загружено профилей: {}", self.profiles.len());
+                                    }
+                                    Err(err) => self.io_error = err,
+                                }
+                            }
+                            if ui.button("Закрыть").clicked() {
+                                close_io = true;
+                            }
+                        });
+                    });
+            }
+            if close_io {
+                self.show_io = false;
             }
         });
     }

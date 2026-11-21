@@ -68,6 +68,45 @@ pub fn parse(input: &str) -> Result<(Vec<Profile>, Settings), String> {
     Ok((profiles, settings))
 }
 
+/// Сериализует готовое состояние в строку, которую понимает `parse`.
+/// Используется для ввода/вывода готовой строки: скопировал — вставил — применил.
+pub fn serialize(profiles: &[Profile], settings: &Settings) -> String {
+    let mut s = String::new();
+    s.push_str("# Fold — готовая строка данных\n");
+    s.push_str(&format!("v {}\n", fmt_num(settings.velocity)));
+    s.push_str(&format!("q {}\n", fmt_num(settings.quality)));
+    s.push_str(&format!("angle {}\n", fmt_num(settings.angle)));
+    for p in profiles {
+        s.push_str(&format!(
+            "profile {} {} {} {}\n",
+            fmt_num(p.x0),
+            fmt_num(p.y0),
+            fmt_num(p.x1),
+            fmt_num(p.y1)
+        ));
+        for pick in &p.picks {
+            s.push_str(&format!(
+                "pick {} {}\n",
+                fmt_num(pick.trace),
+                fmt_num(pick.time)
+            ));
+        }
+        s.push_str("end\n");
+    }
+    s
+}
+
+fn fmt_num(v: f64) -> String {
+    if (v - v.round()).abs() < 1e-9 {
+        format!("{:.0}", v)
+    } else {
+        format!("{:.6}", v)
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string()
+    }
+}
+
 fn e(n: usize) -> String {
     format!("syntax error on line {}", n + 1)
 }
@@ -92,6 +131,22 @@ mod tests {
     #[test]
     fn bad_line() {
         assert!(parse("oops 1 2\n").is_err());
+    }
+
+    #[test]
+    fn serialize_roundtrip() {
+        let (p, s) = parse(
+            "v 1200\nq 95\nangle 12.5\nprofile 100 200 3100 200\npick 1 3.465\npick 10 3.52\nend\n",
+        )
+        .unwrap();
+        let text = serialize(&p, &s);
+        let (p2, s2) = parse(&text).unwrap();
+        assert_eq!(s2.velocity, s.velocity);
+        assert_eq!(s2.quality, s.quality);
+        assert_eq!(s2.angle, s.angle);
+        assert_eq!(p2.len(), p.len());
+        assert_eq!(p2[0].picks, p[0].picks);
+        assert_eq!(p2[0].x1, p[0].x1);
     }
 }
 
