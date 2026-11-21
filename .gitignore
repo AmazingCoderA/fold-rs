@@ -1,0 +1,10 @@
+/target/
+*.pgm
+*.pnm
+.DS_Store
+*.log
+# Дампы оригинального бинарника — не публикуем
+analysis/memory/*.bin
+analysis/memory/*.exe
+analysis/res_unpacked/*.bin
+analysis/res/*.bin
