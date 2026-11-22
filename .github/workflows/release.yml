@@ -42,11 +42,22 @@ jobs:
           cp target/release/fold-gui${{ matrix.exe }} out/
           cp README.md out/
           tar -czf fold-${{ matrix.name }}.tar.gz -C out .
+      - name: Package Windows ZIP
+        if: matrix.name == 'windows-x64'
+        shell: pwsh
+        run: Compress-Archive -Path out\* -DestinationPath fold-windows-x64.zip
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: fold-${{ matrix.name }}
           path: fold-${{ matrix.name }}.tar.gz
+          if-no-files-found: error
+      - name: Upload Windows ZIP
+        if: matrix.name == 'windows-x64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fold-windows-x64-zip
+          path: fold-windows-x64.zip
           if-no-files-found: error
 
   android:
@@ -113,7 +124,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p assets
-          find dist -type f \( -name '*.tar.gz' -o -name '*.apk' \) -exec cp {} assets/ \;
+          find dist -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.apk' \) -exec cp {} assets/ \;
           cp packaging/aur/PKGBUILD assets/fold-rs-PKGBUILD
           cp packaging/aur/.SRCINFO assets/fold-rs-SRCINFO
           cp packaging/aur/README.md assets/fold-rs-AUR-README.md
@@ -128,10 +139,11 @@ jobs:
           body: |
             **Fold — Rust-порт программы 2007 года.**
 
-            GUI восстановлен по бинарному DFM-ресурсу оригинала (нативные координаты 1016×694, без масштабирования), ядро считает структурную карту за миллисекунды, Android-порт работает через Rust JNI + Kotlin UI.
+            GUI восстановлен по бинарному DFM-ресурсу оригинала (координаты 1016×694, один масштаб на обе оси при ресайзе), таблица профилей редактируется, ядро считает структурную карту за миллисекунды, Android-порт работает через Rust JNI + Kotlin UI.
 
             ### Ассеты
-            - `fold-windows-x64.tar.gz` — CLI + GUI для Windows
+            - `fold-windows-x64.zip` — CLI + GUI для Windows (удобно распаковывать в Проводнике)
+            - `fold-windows-x64.tar.gz` — тот же набор в tar.gz
             - `fold-linux-x64.tar.gz` — CLI + GUI для Linux
             - `fold-macos-arm64.tar.gz` — CLI + GUI для macOS
             - `fold-android-universal.apk` — APK для arm64-v8a / armeabi-v7a / x86_64
