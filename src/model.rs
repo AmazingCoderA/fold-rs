@@ -37,17 +37,19 @@ impl Profile {
 pub const MAP_WIDTH_M: f64 = 8000.0;
 pub const MAP_HEIGHT_M: f64 = 4000.0;
 
-/// Размер `Image2` в пикселях из DFM. `0x46641C` считает число узлов карты
-/// по формуле `ny = N * Image2.Height / Image2.Width`.
-pub const SECTION_IMG_W: usize = 800;
-pub const SECTION_IMG_H: usize = 201;
+/// Размер `Image1` (структурной карты) в пикселях из DFM.
+/// Проверено по дампу unpacked image: `[0x46cc44] = 800`, `[0x46cc48] = 400`.
+/// `0x46641C` считает число узлов по формуле `ny = N * Image1.Height / Image1.Width`.
+pub const MAP_IMG_W: usize = 800;
+pub const MAP_IMG_H: usize = 400;
 
 #[derive(Debug, Clone)]
 pub struct Settings {
     /// Средняя скорость, м/с (Edit2 = 1500).
     pub velocity: f64,
     /// Качество изображения (Edit1 = 3), шаг сетки карты в 0x46641C.
-    /// Helper `0x467540` ограничивает значение диапазоном 0.1..10.
+    /// Helper `0x467540` ограничивает значение диапазоном 0.1..9.99
+    /// (константы `0x3dcccccd` и `0x411fd70a` в `0x4680DF/0x4680E4`).
     pub quality: f64,
     /// Угол структурной карты в градусах (Edit4 = 0).
     pub angle: f64,
@@ -74,14 +76,14 @@ impl Default for Settings {
 impl Settings {
     /// Число узлов карты по X из `0x46641C`: `N = trunc(quality*100)+1`.
     pub fn map_nodes_x(&self) -> usize {
-        let q = self.quality.clamp(0.1, 10.0);
+        let q = self.quality.clamp(0.1, 9.99);
         ((q * 100.0).trunc() as usize + 1).clamp(2, 1001)
     }
 
     /// Число узлов карты по Y из `0x46641C`:
-    /// `ny = N * Image2.Height / Image2.Width`.
+    /// `ny = N * Image1.Height / Image1.Width` = `N / 2`.
     pub fn map_nodes_y(&self) -> usize {
-        (self.map_nodes_x() * SECTION_IMG_H / SECTION_IMG_W).max(1)
+        (self.map_nodes_x() * MAP_IMG_H / MAP_IMG_W).max(1)
     }
 }
 
@@ -94,13 +96,20 @@ mod tests {
         let s = Settings::default();
         assert_eq!(s.quality, 3.0);
         assert_eq!(s.map_nodes_x(), 301);
-        assert_eq!(s.map_nodes_y(), 75); // 301 * 201 / 800
+        assert_eq!(s.map_nodes_y(), 150); // 301 * 400 / 800 (trunc)
 
         let coarse = Settings {
             quality: 0.5,
             ..Default::default()
         };
         assert_eq!(coarse.map_nodes_x(), 51);
-        assert_eq!(coarse.map_nodes_y(), 12);
+        assert_eq!(coarse.map_nodes_y(), 25);
+
+        let fine = Settings {
+            quality: 50.0,
+            ..Default::default()
+        };
+        assert_eq!(fine.map_nodes_x(), 1000); // clamp 9.99 → trunc(999)+1
+        assert_eq!(fine.map_nodes_y(), 500);
     }
 }

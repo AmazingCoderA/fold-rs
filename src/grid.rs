@@ -123,8 +123,8 @@ pub fn build_map(profiles: &[Profile], settings: &Settings) -> MapGrid {
 
 /// Внутренняя сетка оригинала из `0x46641C` (используется GUI для текстуры).
 ///
-/// `N = trunc(quality·100)+1`, `ny = N·Image2.Height/Image2.Width`.
-/// Значения quality ограничены helper'ом `0x467540` диапазоном 0.1..10.
+/// `N = trunc(quality·100)+1`, `ny = N·Image1.Height/Image1.Width` (301×150
+/// при quality=3). Значения quality ограничены `0x467540` диапазоном 0.1..9.99.
 pub fn build_map_native(profiles: &[Profile], settings: &Settings) -> MapGrid {
     let _ = profiles;
     sample_grid(
@@ -225,7 +225,7 @@ mod tests {
         let s = Settings::default();
         let g = build_map_native(&[], &s);
         assert_eq!((g.width, g.height), (s.map_nodes_x(), s.map_nodes_y()));
-        assert_eq!((g.width, g.height), (301, 75));
+        assert_eq!((g.width, g.height), (301, 150));
         assert!(g.data.iter().all(|v| v.is_finite()));
     }
 

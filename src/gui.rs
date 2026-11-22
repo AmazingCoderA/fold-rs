@@ -186,6 +186,10 @@ pub struct FoldApp {
     map_key: Option<(f64, f64, usize)>,
     /// Вертикальный масштаб временного разреза из `0x466980`: (t min, t max).
     time_bounds: (f64, f64),
+    /// Ключ пересчёта `time_bounds`: (профиль, x0, y0, x1, y1, V, угол).
+    /// Пики не влияют на масштаб, поэтому перемещение мышью не вызывает
+    /// повторного прохода по 200-метровым отсчётам профиля.
+    time_key: Option<(usize, f64, f64, f64, f64, f64, f64)>,
     /// Текущее преобразование координат (пересчитывается при ресайзе окна).
     view: View,
 }
@@ -205,6 +209,15 @@ impl FoldApp {
             picks: Vec::new(),
         };
         let time_bounds = profile_time_bounds(&base, &settings);
+        let time_key = Some((
+            0,
+            base.x0,
+            base.y0,
+            base.x1,
+            base.y1,
+            settings.velocity,
+            settings.angle,
+        ));
         let span = time_bounds.1 - time_bounds.0;
         let demos = [
             (1.0_f64, 0.20_f64),
@@ -251,10 +264,35 @@ impl FoldApp {
             fonts_ok,
             map_key: None,
             time_bounds,
+            time_key,
             view: View {
                 scale: 1.0,
                 origin: Pos2::ZERO,
             },
+        }
+    }
+
+    /// Пересчитывает время разреза только при изменении профиля, V или угла.
+    fn refresh_time_bounds(&mut self) {
+        let key = match self.profiles.get(self.selected) {
+            Some(p) => (
+                self.selected,
+                p.x0,
+                p.y0,
+                p.x1,
+                p.y1,
+                self.settings.velocity,
+                self.settings.angle,
+            ),
+            None => {
+                self.time_bounds = (0.0, 1.0);
+                self.time_key = None;
+                return;
+            }
+        };
+        if self.time_key != Some(key) {
+            self.time_bounds = profile_time_bounds(&self.profiles[self.selected], &self.settings);
+            self.time_key = Some(key);
         }
     }
 
@@ -683,12 +721,8 @@ impl eframe::App for FoldApp {
             self.recalc(ctx);
         }
         // Вертикальный масштаб разреза считается по активному профилю, как в
-        // 0x466980: t = 2H/V. Имена пиков остаются в секундах.
-        self.time_bounds = self
-            .profiles
-            .get(self.selected)
-            .map(|p| profile_time_bounds(p, &self.settings))
-            .unwrap_or((0.0, 1.0));
+        // 0x466980: t = 2H/V. Кэш убирает лишний проход по профилю каждый кадр.
+        self.refresh_time_bounds();
 
         // Явная навигация: Tab/Shift+Tab и Enter переходят между полями DFM.
         // Событие удаляется из ввода, чтобы egui не двигал фокус второй раз
@@ -1134,9 +1168,9 @@ impl eframe::App for FoldApp {
                 &mut self.quality,
                 "qual_field",
             ) {
-                // 0x467540: float из Edit1, clamp 0.1..10; он задаёт N=trunc(q*100)+1.
+                // 0x467540: float из Edit1, clamp 0.1..9.99; он задаёт N=trunc(q*100)+1.
                 if let Ok(q) = self.quality.parse::<f64>() {
-                    self.settings.quality = q.clamp(0.1, 10.0);
+                    self.settings.quality = q.clamp(0.1, 9.99);
                     self.dirty = true;
                 }
             }
@@ -1459,7 +1493,7 @@ impl eframe::App for FoldApp {
                         ui.label("Fold — быстрый порт программы 2007 года.");
                         ui.separator();
                         ui.label("V ср — средняя скорость, f — параметр сигнала.");
-                        ui.label("Качество изображения — шаг сетки карты (0.1..10, как в DFM).");
+                        ui.label("Качество изображения — шаг сетки карты (0.1..9.99, как в DFM).");
                         ui.label("Х, м / Y, м — угол и координаты профиля.");
                         ui.label("Профиль задаётся перетаскиванием мыши по карте.");
                         ui.label("Пик на временном разрезе ставится кликом мыши.");
