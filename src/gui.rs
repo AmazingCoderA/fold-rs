@@ -12,7 +12,7 @@
 //! Добавлен только 20-пиксельный слой меню сверху (в оригинале меню —
 //! системное, вне клиентской области), чтобы все кнопки были доступны.
 
-use crate::grid::{build_map, MapGrid};
+use crate::grid::{build_map_native, profile_time_bounds, MapGrid};
 use crate::io::{parse, serialize};
 use crate::model::{Pick, Profile, Settings, MAP_HEIGHT_M, MAP_WIDTH_M};
 use egui::{Align2, Color32, FontFamily, FontId, Pos2, Rect, Sense, Stroke, TextureHandle};
@@ -87,6 +87,7 @@ enum Face {
     Bold,
     BoldItalic,
     Symbol,
+    BoldUnderline,
 }
 
 struct Theme {
@@ -98,12 +99,14 @@ struct Theme {
 const THEMES: [Theme; 5] = [
     Theme {
         name: "Классика",
+        // Точная формула 0x46641C: (65,65+560t,205) → (65,205,205) →
+        // (65+560(t−.5),205,65) → (205,205−560(t−.75),65).
         stops: [
-            (0.00, [70, 96, 205]),
-            (0.25, [82, 204, 188]),
-            (0.50, [82, 203, 80]),
-            (0.75, [202, 202, 63]),
-            (1.00, [198, 80, 64]),
+            (0.00, [65, 65, 205]),
+            (0.25, [65, 205, 205]),
+            (0.50, [65, 205, 65]),
+            (0.75, [205, 205, 65]),
+            (1.00, [205, 65, 65]),
         ],
     },
     Theme {
@@ -179,8 +182,10 @@ pub struct FoldApp {
     theme: usize,
     /// Arial загружен из C:\Windows\Fonts; иначе fallback на встроенный шрифт.
     fonts_ok: bool,
-    /// Ключ пересчёта текстуры: (угол, ширина, высота, палитра).
-    map_key: Option<(f64, usize, usize, usize)>,
+    /// Ключ пересчёта текстуры: (угол, качество, палитра).
+    map_key: Option<(f64, f64, usize)>,
+    /// Вертикальный масштаб временного разреза из `0x466980`: (t min, t max).
+    time_bounds: (f64, f64),
     /// Текущее преобразование координат (пересчитывается при ресайзе окна).
     view: View,
 }
@@ -188,38 +193,35 @@ pub struct FoldApp {
 impl FoldApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let fonts_ok = install_fonts(cc);
-        let settings = Settings {
-            velocity: 1200.0,
-            ..Default::default()
-        };
-        let profiles = vec![Profile {
+        // Значения полей — строго из DFM: Edit2='1500', Edit1='3', Edit3='95',
+        // Edit4='0', Edit5='0'.
+        let settings = Settings::default();
+        let base = Profile {
             id: 0,
             x0: 100.0,
             y0: 100.0,
             x1: 3100.0,
             y1: 100.0,
-            picks: vec![
-                Pick {
-                    trace: 1.0,
-                    time: 3.465,
-                },
-                Pick {
-                    trace: 3.0,
-                    time: 3.474,
-                },
-                Pick {
-                    trace: 5.0,
-                    time: 3.290,
-                },
-                Pick {
-                    trace: 7.0,
-                    time: 3.524,
-                },
-                Pick {
-                    trace: 10.0,
-                    time: 3.520,
-                },
-            ],
+            picks: Vec::new(),
+        };
+        let time_bounds = profile_time_bounds(&base, &settings);
+        let span = time_bounds.1 - time_bounds.0;
+        let demos = [
+            (1.0_f64, 0.20_f64),
+            (3.0, 0.35),
+            (5.0, 0.50),
+            (7.0, 0.65),
+            (10.0, 0.80),
+        ];
+        let profiles = vec![Profile {
+            picks: demos
+                .iter()
+                .map(|&(trace, k)| Pick {
+                    trace,
+                    time: time_bounds.0 + k * span,
+                })
+                .collect(),
+            ..base
         }];
         Self {
             profiles,
@@ -228,9 +230,9 @@ impl FoldApp {
             texture: None,
             last_ms: 0.0,
             dirty: true,
-            v: "1200".into(),
-            fval: "10".into(),
-            quality: "95".into(),
+            v: "1500".into(),
+            fval: "95".into(),
+            quality: "3".into(),
             xang: "0".into(),
             yang: "0".into(),
             xg: "3100".into(),
@@ -248,6 +250,7 @@ impl FoldApp {
             theme: 0,
             fonts_ok,
             map_key: None,
+            time_bounds,
             view: View {
                 scale: 1.0,
                 origin: Pos2::ZERO,
@@ -256,19 +259,14 @@ impl FoldApp {
     }
 
     fn recalc(&mut self, ctx: &egui::Context) {
-        let key = (
-            self.settings.angle,
-            self.settings.width,
-            self.settings.height,
-            self.theme,
-        );
+        let key = (self.settings.angle, self.settings.quality, self.theme);
         self.dirty = false;
         if self.map_key == Some(key) && self.texture.is_some() {
             return;
         }
 
         let t = std::time::Instant::now();
-        let g = build_map(&self.profiles, &self.settings);
+        let g = build_map_native(&self.profiles, &self.settings);
         let (min, max) = bounds(&g);
         let span = (max - min).max(1e-6);
         let theme = self.theme;
@@ -279,11 +277,13 @@ impl FoldApp {
             }
         }
         self.last_ms = t.elapsed().as_secs_f64() * 1000.0;
+        // Оригинал заливает прямоугольники с жёсткими границами 21 полосы —
+        // LINEAR здесь размывал бы карту и легенду.
         match &mut self.texture {
-            Some(tex) => tex.set(img, egui::TextureOptions::LINEAR),
+            Some(tex) => tex.set(img, egui::TextureOptions::NEAREST),
             None => {
                 self.texture =
-                    Some(ctx.load_texture("struct_map", img, egui::TextureOptions::LINEAR));
+                    Some(ctx.load_texture("struct_map", img, egui::TextureOptions::NEAREST));
             }
         }
         self.map_key = Some(key);
@@ -431,8 +431,10 @@ fn bounds(g: &MapGrid) -> (f32, f32) {
 }
 
 fn palette(u: f32, theme: usize) -> Color32 {
-    let band = (u * BANDS as f32) as usize;
-    let t = ((band.min(BANDS - 1) as f32 + 0.5) / BANDS as f32).clamp(0.0, 1.0);
+    // 0x46641C сравнивает |H−(min+k·span/21)| <= span/42, то есть выбирает
+    // ближайшую полосу — это `round(u·21)`, а не `floor`.
+    let band = (u * BANDS as f32 + 0.5) as usize;
+    let t = (band.min(BANDS - 1) as f32 / BANDS as f32).clamp(0.0, 1.0);
     scale_color(t, theme)
 }
 
@@ -452,17 +454,19 @@ fn scale_color(t: f32, theme: usize) -> Color32 {
 }
 
 /// Залитые чёрные виггл-лепестки (Ricker), как в original.
-fn wiggle(ui: &egui::Ui, view: View, cx: f32, sec: Rect, pick_time: f64) {
+fn wiggle(ui: &egui::Ui, view: View, cx: f32, sec: Rect, pick_time: f64, time_bounds: (f64, f64)) {
     const N: usize = 160;
     let scale = (sec.height() / 174.0).max(0.2);
     let amp = 20.0 * scale;
     let freq = 18.0_f64;
     let step = sec.height() / N as f32;
+    let (t_min, t_max) = time_bounds;
+    let t_span = (t_max - t_min).max(1e-6);
     let mut pts = Vec::with_capacity(N + 1);
     for k in 0..=N {
         let fy = k as f32 / N as f32;
         let y = sec.min.y + fy * sec.height();
-        let t = 3.6_f64 - f64::from(fy) * 0.4;
+        let t = t_max - f64::from(fy) * t_span;
         let dt = (t - pick_time) * freq;
         let w = (1.0 - 2.0 * std::f64::consts::PI.powi(2) * dt * dt)
             * (-std::f64::consts::PI.powi(2) * dt * dt).exp();
@@ -501,6 +505,7 @@ fn font_of(fonts_ok: bool, face: Face, size: f32) -> FontId {
         Face::Bold => "ArialB",
         Face::BoldItalic => "ArialBI",
         Face::Symbol => "Symbol",
+        Face::BoldUnderline => "ArialB",
     };
     FontId::new(size, FontFamily::Name(Arc::from(name)))
 }
@@ -547,25 +552,29 @@ fn centered(
     );
 }
 
-/// Подпись, прижатая к правому краю DFM-клиента: длинный текст не обрезается.
+/// Подпись Label9 из DFM: Bold + Underline, прижата к правому краю.
 #[allow(clippy::too_many_arguments)]
-fn right_label(
+fn underlined_right_label(
     ui: &egui::Ui,
     view: View,
     fonts_ok: bool,
     x: f32,
     y: f32,
-    s: impl Into<String>,
-    face: Face,
+    s: &str,
     size: f32,
     color: Color32,
 ) {
-    ui.painter().text(
-        view.p(x, y),
-        Align2::RIGHT_TOP,
-        s.into(),
-        font_of(fonts_ok, face, view.fs(size)),
-        color,
+    let font = font_of(fonts_ok, Face::BoldUnderline, view.fs(size));
+    let galley = ui
+        .painter()
+        .layout(s.to_owned(), font.clone(), color, f32::INFINITY);
+    let p = view.p(x, y);
+    ui.painter()
+        .text(p, Align2::RIGHT_TOP, s.to_owned(), font, color);
+    let uy = p.y + view.fs(size) + view.scale;
+    ui.painter().line_segment(
+        [Pos2::new(p.x - galley.rect.width(), uy), Pos2::new(p.x, uy)],
+        Stroke::new(view.scale.max(0.7), color),
     );
 }
 
@@ -648,7 +657,7 @@ fn grid_cell(
         egui::TextEdit::singleline(val)
             .id(id)
             .frame(false)
-            .font(font_of(fonts_ok, Face::Bold, view.fs(11.0))),
+            .font(font_of(fonts_ok, Face::Bold, view.fs(13.0))),
     )
     .changed()
 }
@@ -673,6 +682,13 @@ impl eframe::App for FoldApp {
         if self.dirty {
             self.recalc(ctx);
         }
+        // Вертикальный масштаб разреза считается по активному профилю, как в
+        // 0x466980: t = 2H/V. Имена пиков остаются в секундах.
+        self.time_bounds = self
+            .profiles
+            .get(self.selected)
+            .map(|p| profile_time_bounds(p, &self.settings))
+            .unwrap_or((0.0, 1.0));
 
         // Явная навигация: Tab/Shift+Tab и Enter переходят между полями DFM.
         // Событие удаляется из ввода, чтобы egui не двигал фокус второй раз
@@ -821,8 +837,9 @@ impl eframe::App for FoldApp {
                 &mut self.xang,
                 "x_field",
             ) {
-                if let Ok(a) = self.xang.parse() {
-                    self.settings.angle = a;
+                if let Ok(a) = self.xang.parse::<f64>() {
+                    // 0x4674AC: integer из Edit4 с clamp 0..360, затем −90°.
+                    self.settings.angle = a.clamp(0.0, 360.0);
                     self.dirty = true;
                 }
             }
@@ -887,8 +904,9 @@ impl eframe::App for FoldApp {
                 &mut self.v,
                 "v_field",
             ) {
-                if let Ok(x) = self.v.parse() {
-                    self.settings.velocity = x;
+                if let Ok(x) = self.v.parse::<f64>() {
+                    // 0x4674AC: V ср из Edit2 с clamp 1000..7000 м/с.
+                    self.settings.velocity = x.clamp(1000.0, 7000.0);
                 }
             }
             label(
@@ -936,33 +954,37 @@ impl eframe::App for FoldApp {
                 CL_MAROON,
             );
 
-            // StringGrid1 из DFM: ColCount=2, RowCount=4,DefaultColWidth=60,
-            // RowHeights=24, FixedColor=clMoneyGreen, Options=goEditing.
-            // Четыре параметра профиля (x0,y0,x1,y1) вводятся прямо в ячейки.
+            // StringGrid1 из DFM: ColCount=2, RowCount=4, DefaultColWidth=60,
+            // RowHeights=24, FixedColor=clMoneyGreen, FixedRows=0, Options=goEditing.
+            // FixedCols в DFM не переопределён ⇒ по умолчанию равен 1, поэтому
+            // money-green заливается первый столбец, а не первая строка.
             let grid = view.r(GRID.0, GRID.1, GRID.2, GRID.3);
             let cell_w = 60.0 * view.scale;
             let row_h = 24.0 * view.scale;
             ui.painter().rect_filled(grid, 0.0, Color32::WHITE);
             for row in 0..4 {
                 let y = grid.min.y + row as f32 * row_h;
-                let bg = if row == 0 {
-                    CL_MONEY_GREEN
-                } else {
-                    Color32::WHITE
-                };
-                ui.painter().rect_filled(
-                    Rect::from_min_max(
-                        Pos2::new(grid.min.x, y),
-                        Pos2::new(grid.max.x, (y + row_h).min(grid.max.y)),
-                    ),
-                    0.0,
-                    bg,
-                );
                 for col in 0..2 {
                     let idx = row * 2 + col;
                     if idx >= GRID_IDS.len() {
                         continue;
                     }
+                    let bg = if col == 0 {
+                        CL_MONEY_GREEN
+                    } else {
+                        Color32::WHITE
+                    };
+                    ui.painter().rect_filled(
+                        Rect::from_min_max(
+                            Pos2::new(grid.min.x + col as f32 * cell_w, y),
+                            Pos2::new(
+                                grid.min.x + (col + 1) as f32 * cell_w,
+                                (y + row_h).min(grid.max.y),
+                            ),
+                        ),
+                        0.0,
+                        bg,
+                    );
                     let cell = Rect::from_min_max(
                         Pos2::new(
                             grid.min.x + col as f32 * cell_w + view.scale,
@@ -1112,8 +1134,10 @@ impl eframe::App for FoldApp {
                 &mut self.quality,
                 "qual_field",
             ) {
-                if let Ok(q) = self.quality.parse() {
-                    self.settings.quality = q;
+                // 0x467540: float из Edit1, clamp 0.1..10; он задаёт N=trunc(q*100)+1.
+                if let Ok(q) = self.quality.parse::<f64>() {
+                    self.settings.quality = q.clamp(0.1, 10.0);
+                    self.dirty = true;
                 }
             }
             // ── карта Image1 (200,40,800,400) ─────────────────────────────────
@@ -1274,6 +1298,8 @@ impl eframe::App for FoldApp {
                 Color32::BLACK,
             );
             let sec = view.r(SEC.0, SEC.1, SEC.2, SEC.3);
+            let tb = self.time_bounds;
+            let t_span = (tb.1 - tb.0).max(1e-6);
             ui.painter()
                 .rect_filled(sec, 0.0, Color32::from_rgb(253, 253, 252));
             for i in 0..=10 {
@@ -1309,6 +1335,7 @@ impl eframe::App for FoldApp {
                             sec.min.x + sec.width() * i as f32 / 11.0,
                             sec,
                             pk.time,
+                            tb,
                         );
                     }
                 }
@@ -1316,7 +1343,7 @@ impl eframe::App for FoldApp {
             for pk in &picks {
                 let c = Pos2::new(
                     sec.min.x + (pk.trace / 11.0) as f32 * sec.width(),
-                    sec.max.y - ((pk.time - 3.2) / 0.4).clamp(0.0, 1.0) as f32 * sec.height(),
+                    sec.max.y - ((pk.time - tb.0) / t_span).clamp(0.0, 1.0) as f32 * sec.height(),
                 );
                 ui.painter()
                     .circle_filled(c, 3.0 * view.scale, Color32::from_rgb(220, 70, 30));
@@ -1325,7 +1352,7 @@ impl eframe::App for FoldApp {
             if sresp.clicked() {
                 let pnt = sresp.interact_pointer_pos().unwrap_or(sec.min);
                 let trace = ((pnt.x - sec.min.x) / sec.width() * 11.0) as f64;
-                let time = 3.2_f64 + f64::from(1.0 - (pnt.y - sec.min.y) / sec.height()) * 0.4;
+                let time = tb.0 + f64::from(1.0 - (pnt.y - sec.min.y) / sec.height()) * t_span;
                 if self.profiles.is_empty() {
                     self.add_profile(100.0, 2000.0, 3100.0, 2000.0);
                 }
@@ -1356,14 +1383,13 @@ impl eframe::App for FoldApp {
             // Label9 из DFM: clMaroon, Bold+Underline, x=872, y=672.
             // Текст длиннее оригинального, поэтому прижимаем его к правому
             // краю клиента — подпись всегда видна при любом размере окна.
-            right_label(
+            underlined_right_label(
                 ui,
                 view,
                 self.fonts_ok,
                 CW - 4.0,
                 672.0,
                 "Rust version Fold by Lion 2026",
-                Face::Bold,
                 12.0,
                 CL_MAROON,
             );
@@ -1433,7 +1459,7 @@ impl eframe::App for FoldApp {
                         ui.label("Fold — быстрый порт программы 2007 года.");
                         ui.separator();
                         ui.label("V ср — средняя скорость, f — параметр сигнала.");
-                        ui.label("Качество изображения — точность построения карты.");
+                        ui.label("Качество изображения — шаг сетки карты (0.1..10, как в DFM).");
                         ui.label("Х, м / Y, м — угол и координаты профиля.");
                         ui.label("Профиль задаётся перетаскиванием мыши по карте.");
                         ui.label("Пик на временном разрезе ставится кликом мыши.");
