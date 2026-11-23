@@ -13,11 +13,13 @@
 //! системное, вне клиентской области), чтобы все кнопки были доступны.
 
 use crate::grid::{
-    build_map_native, horizon_depth, profile_time_bounds, section_time_from_y, section_trace_count,
-    surface_theta, MapGrid,
+    build_map_native, build_section, profile_time_bounds, section_time_from_y, MapGrid, SectionData,
 };
 use crate::io::{fmt_num, parse, serialize};
-use crate::model::{Pick, Profile, Settings, MAP_HEIGHT_M, MAP_IMG_H, MAP_IMG_W, MAP_WIDTH_M};
+use crate::model::{
+    Pick, Profile, Settings, MAP_HEIGHT_M, MAP_IMG_H, MAP_IMG_W, MAP_WIDTH_M, SECTION_IMG_H,
+    SECTION_IMG_W,
+};
 use egui::{Align2, Color32, FontFamily, FontId, Pos2, Rect, Sense, Stroke, TextureHandle};
 use std::sync::{Arc, OnceLock};
 
@@ -208,8 +210,10 @@ pub struct FoldApp {
     theme: usize,
     /// Arial загружен из C:\Windows\Fonts; иначе fallback на встроенный шрифт.
     fonts_ok: bool,
-    /// Ключ пересчёта текстуры: (угол, качество, палитра).
+    /// Ключ пересчёта текстуры карты: (угол, качество, палитра).
     map_key: Option<(f64, f64, usize)>,
+    /// Текстура Image2: полный буфер 300 отсчётов на трассу из `0x465BD4`.
+    section_tex: Option<TextureHandle>,
     /// Вертикальный масштаб временного разреза из `0x466980`: (t min, t max).
     time_bounds: (f64, f64),
     /// Ключ пересчёта `time_bounds`: (профиль, x0, y0, x1, y1, V, угол).
@@ -295,6 +299,7 @@ impl FoldApp {
             theme: 0,
             fonts_ok,
             map_key: None,
+            section_tex: None,
             time_bounds,
             time_key,
             view: View {
@@ -306,10 +311,11 @@ impl FoldApp {
         }
     }
 
-    /// Пересчитывает время разреза только при изменении профиля, V или угла.
-    fn refresh_time_bounds(&mut self) {
-        let key = match self.profiles.get(self.selected) {
-            Some(p) => (
+    /// Пересчитывает Range и текстуру Image2 только при изменении профиля, V
+    /// или угла. Текстура содержит все 300 отсчётов на трассу, как original.
+    fn refresh_time_bounds(&mut self, ctx: &egui::Context) {
+        let key = self.profiles.get(self.selected).map(|p| {
+            (
                 self.selected,
                 p.x0,
                 p.y0,
@@ -317,17 +323,31 @@ impl FoldApp {
                 p.y1,
                 self.settings.velocity,
                 self.settings.angle,
-            ),
+            )
+        });
+        if self.time_key == key && self.section_tex.is_some() {
+            return;
+        }
+
+        let image = match self.profiles.get(self.selected) {
+            Some(profile) => {
+                let data = build_section(profile, &self.settings);
+                self.time_bounds = (f64::from(data.t_min), f64::from(data.t_max));
+                section_image(&data)
+            }
             None => {
                 self.time_bounds = (0.0, 1.0);
-                self.time_key = None;
-                return;
+                egui::ColorImage::new([SECTION_IMG_W, SECTION_IMG_H], Color32::WHITE)
             }
         };
-        if self.time_key != Some(key) {
-            self.time_bounds = profile_time_bounds(&self.profiles[self.selected], &self.settings);
-            self.time_key = Some(key);
+        match self.section_tex.as_mut() {
+            Some(tex) => tex.set(image, egui::TextureOptions::NEAREST),
+            None => {
+                self.section_tex =
+                    Some(ctx.load_texture("time_section", image, egui::TextureOptions::NEAREST));
+            }
         }
+        self.time_key = key;
     }
 
     fn recalc(&mut self, ctx: &egui::Context) {
@@ -583,46 +603,105 @@ fn scale_color(t: f32, theme: usize) -> Color32 {
     Color32::from_rgb(c[0], c[1], c[2])
 }
 
-/// Залитые чёрные виггл-лепестки (Ricker), как в original.
-fn wiggle(ui: &egui::Ui, view: View, cx: f32, sec: Rect, trace_time: f64, time_bounds: (f64, f64)) {
-    const N: usize = 160;
-    let scale = (sec.height() / 174.0).max(0.2);
-    let amp = 20.0 * scale;
-    let freq = 18.0_f64;
-    let step = sec.height() / N as f32;
-    let (t_min, t_max) = time_bounds;
-    let t_span = (t_max - t_min).max(1e-6);
-    // Один стековый массив вместо Vec-аллокации на каждую трассу разреза.
-    let mut pts = [(0.0_f32, 0.0_f32, 0.0_f64); N + 1];
-    for (k, pt) in pts.iter_mut().enumerate() {
-        let fy = k as f32 / N as f32;
-        let y = sec.min.y + fy * sec.height();
-        let t = t_min + f64::from(fy) * t_span;
-        let dt = (t - trace_time) * freq;
-        let w = (1.0 - 2.0 * std::f64::consts::PI.powi(2) * dt * dt)
-            * (-std::f64::consts::PI.powi(2) * dt * dt).exp();
-        *pt = (y, cx + w as f32 * amp, w);
+#[inline]
+fn put_pixel(img: &mut egui::ColorImage, x: i32, y: i32, color: Color32) {
+    let width = img.width();
+    if x >= 0 && y >= 0 && (x as usize) < width && (y as usize) < img.height() {
+        img.pixels[y as usize * width + x as usize] = color;
     }
-    for &(y, x, w) in &pts {
-        let x0 = x.min(cx);
-        let x1 = x.max(cx);
-        if (x1 - x0) > 0.6 && w.abs() > 0.02 {
-            ui.painter().rect_filled(
-                Rect::from_min_max(Pos2::new(x0, y), Pos2::new(x1, y + step + 0.6)),
-                0.0,
-                Color32::from_gray(15),
-            );
+}
+
+#[inline]
+fn hline(img: &mut egui::ColorImage, x0: i32, x1: i32, y: i32, color: Color32) {
+    for x in x0.min(x1)..=x0.max(x1) {
+        put_pixel(img, x, y, color);
+    }
+}
+
+#[inline]
+fn vline(img: &mut egui::ColorImage, x: i32, y0: i32, y1: i32, color: Color32) {
+    for y in y0.min(y1)..=y0.max(y1) {
+        put_pixel(img, x, y, color);
+    }
+}
+
+/// Отрисовка одного отрезка `TCanvas.LineTo` (отрицательные амплитуды в
+/// `0x46608B` соединяют предыдущую точку с новой, отсюда диагонали).
+fn line(img: &mut egui::ColorImage, x0: i32, y0: i32, x1: i32, y1: i32, color: Color32) {
+    let mut x = x0;
+    let mut y = y0;
+    let dx = (x1 - x0).abs();
+    let dy = -(y1 - y0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+    loop {
+        put_pixel(img, x, y, color);
+        if x == x1 && y == y1 {
+            break;
+        }
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y += sy;
         }
     }
-    ui.painter().line_segment(
-        [Pos2::new(cx, sec.min.y), Pos2::new(cx, sec.max.y)],
-        Stroke::new(0.6_f32 * view.scale, Color32::from_gray(120)),
-    );
-    let line: Vec<Pos2> = pts.iter().map(|&(y, x, _)| Pos2::new(x, y)).collect();
-    ui.painter().add(egui::Shape::line(
-        line,
-        Stroke::new(0.8_f32 * view.scale, Color32::BLACK),
-    ));
+}
+
+/// Дословная растеризация `0x465D68` в 800×201 буфер Image2.
+fn section_image(data: &SectionData) -> egui::ColorImage {
+    let mut img = egui::ColorImage::new([SECTION_IMG_W, SECTION_IMG_H], Color32::WHITE);
+    let w = SECTION_IMG_W as f32;
+    let h = SECTION_IMG_H as f32;
+    let span = data.t_max - data.t_min;
+    let scale_t = h / span;
+    let grid_y = h / 10.0; // 0x466150 = 10
+    let x_step = w / (data.n as f32 + 1.0);
+    let grid = Color32::from_gray(210); // 0x467739..0x467743: $D2D2D2
+
+    // 0x465E4C: вертикальные линии, i = 1..n, y = 1..H−1.
+    for i in 1..=data.n {
+        let x = (i as f32 * x_step).trunc() as i32;
+        vline(&mut img, x, 1, SECTION_IMG_H as i32 - 1, grid);
+    }
+    // 0x465F05: горизонтальные линии, i = 1..11 (11-я за краем контрола).
+    for i in 1..=11 {
+        let y = (i as f32 * grid_y).trunc() as i32;
+        hline(&mut img, 0, SECTION_IMG_W as i32 - 1, y, grid);
+    }
+
+    // 0x465FB0: RMS считается ТОЛЬКО по первым 300 отсчётам первой трассы.
+    let mut sum = 1e-8f32; // 0x322BCC77
+    for &s in data.samples.iter().take(crate::grid::SECTION_SAMPLES) {
+        sum += s.wrapping_mul(s) as f32;
+    }
+    let rms = f64::from((sum / crate::grid::SECTION_SAMPLES as f32).sqrt());
+
+    // 0x466019: x = trunc(i*x_step), amp = trunc(0.12/rms*sample*x_step).
+    for trace in 0..data.n {
+        let x0 = ((trace + 1) as f32 * x_step).trunc() as i32;
+        let mut cur = (x0, 0i32); // 0x465FE1: MoveTo(x0, 0)
+        for j in 0..crate::grid::SECTION_SAMPLES {
+            let s = data.samples[trace * crate::grid::SECTION_SAMPLES + j];
+            let tj = data.t_min + j as f32 / crate::grid::SECTION_SAMPLES as f32 * span;
+            let y = ((tj - data.t_min) * scale_t).trunc() as i32;
+            let amp = (0.12f64 / rms * f64::from(s) * f64::from(x_step)).trunc() as i32;
+            let x1 = x0 + amp;
+            if amp < 0 {
+                // 0x46608B: LineTo без MoveTo — connects previous endpoint.
+                line(&mut img, cur.0, cur.1, x1, y, Color32::BLACK);
+            } else {
+                // 0x4676CC: MoveTo(x0,y) + LineTo(x1,y).
+                hline(&mut img, x0, x1, y, Color32::BLACK);
+            }
+            cur = (x1, y);
+        }
+    }
+    img
 }
 
 // ── примитивы рисования в координатах DFM ────────────────────────────────────
@@ -1492,33 +1571,20 @@ impl eframe::App for FoldApp {
                 11.0,
                 Color32::BLACK,
             );
-            // Масштаб Image2 и пики берём ПОСЛЕ всех изменений профиля в этом
-            // кадре (drag по карте, ячейки таблицы, смена профиля) — иначе
-            // разрез на один кадр отстаёт от карты и таблицы.
-            self.refresh_time_bounds();
+            // Масштаб Image2, сетку и все 300 отсчётов берём ПОСЛЕ изменений
+            // профиля в этом кадре, чтобы разрез не отставал от карты/таблицы.
+            self.refresh_time_bounds(ui.ctx());
             let sec = view.r(SEC.0, SEC.1, SEC.2, SEC.3);
             let tb = self.time_bounds;
             let t_span = (tb.1 - tb.0).max(1e-6);
-            // 0x46783C: Image2 очищается чистой белой заливкой.
-            ui.painter().rect_filled(sec, 0.0, Color32::WHITE);
-            // 0x465F05: 10 видимых горизонтальных линий y = Round(i*H/10),
-            // i = 1..10 (11-я из original заходит за край контрола).
-            for i in 1..=10 {
-                let y = sec.min.y + sec.height() * i as f32 / 10.0;
-                ui.painter().line_segment(
-                    [Pos2::new(sec.min.x, y), Pos2::new(sec.max.x, y)],
-                    Stroke::new(0.6_f32 * view.scale, Color32::from_gray(210)),
-                );
-            }
-            // 0x465E4C: число вертикальных осей = числу трасс разреза,
-            // шаг = Width/(n+1) — не фиксированные 10, как было раньше.
-            let prof = self.profiles.get(self.selected);
-            let n_traces = prof.map(section_trace_count).unwrap_or(1);
-            for i in 1..=n_traces {
-                let x = sec.min.x + sec.width() * i as f32 / (n_traces + 1) as f32;
-                ui.painter().line_segment(
-                    [Pos2::new(x, sec.min.y), Pos2::new(x, sec.max.y)],
-                    Stroke::new(0.6_f32 * view.scale, Color32::from_gray(210)),
+            // 0x465D68 целиком растеризуется в 800×201 текстуру с NEAREST —
+            // это и original-сетка, и чёрные отсчёты, без per-frame Vec'ов.
+            if let Some(tex) = &self.section_tex {
+                ui.painter().image(
+                    tex.id(),
+                    sec,
+                    Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                    Color32::WHITE,
                 );
             }
             ui.painter().rect_stroke(
@@ -1526,29 +1592,6 @@ impl eframe::App for FoldApp {
                 0.0,
                 Stroke::new(view.scale.max(0.6), Color32::from_gray(140)),
             );
-            // 0x466980: трассы считаются из длины профиля шагом 200 м, а время
-            // каждой трассы — t = 2H/V. Раньше вигглы строились по пикам,
-            // чего в original нет: пики — только текст Memo1 и маркер мышью.
-            if let Some(pr) = prof {
-                let theta = surface_theta(&self.settings);
-                let dx = pr.x1 - pr.x0;
-                let dy = pr.y1 - pr.y0;
-                let len = pr.length();
-                let step = self.settings.step.max(1.0);
-                for i in 1..=n_traces {
-                    let k = if len <= 0.0 {
-                        0.0
-                    } else {
-                        ((i as f64 * step) / len).min(1.0)
-                    };
-                    let px = (pr.x0 + k * dx) as f32;
-                    let py = (pr.y0 + k * dy) as f32;
-                    let t = 2.0 * f64::from(horizon_depth(px, py, theta))
-                        / self.settings.velocity.max(1.0);
-                    let cx = sec.min.x + sec.width() * i as f32 / (n_traces + 1) as f32;
-                    wiggle(ui, view, cx, sec, t, tb);
-                }
-            }
             // DFM `Image2.OnMouseDown`: пик ставится в момент нажатия. `clicked()`
             // нужен только как fallback для очень быстрого клика, когда press и
             // release попали в один кадр; флаг не даёт добавить пик дважды.
@@ -1800,5 +1843,21 @@ mod tests {
         // Легенда должна показывать те же 21 цветов, что и карта.
         assert_eq!(band_color(0, 0), palette(0.0, 0));
         assert_eq!(band_color(20, 0), palette(1.0, 0));
+    }
+
+    #[test]
+    fn section_image_uses_dfm_grid_geometry() {
+        let data = SectionData {
+            t_min: 0.0,
+            t_max: 1.0,
+            n: 1,
+            samples: vec![0; crate::grid::SECTION_SAMPLES],
+        };
+        let img = section_image(&data);
+        assert_eq!((img.width(), img.height()), (SECTION_IMG_W, SECTION_IMG_H));
+        // i=1 ⇒ y=trunc(201/10)=20, first horizontal grid line; x=0 is not
+        // touched by sample traces (they start at x=trunc(800/2)=400).
+        assert_eq!(img.pixels[20 * SECTION_IMG_W], Color32::from_gray(210));
+        assert_eq!(img.pixels[0], Color32::WHITE);
     }
 }

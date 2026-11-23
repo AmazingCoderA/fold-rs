@@ -43,6 +43,10 @@ pub const MAP_HEIGHT_M: f64 = 4000.0;
 pub const MAP_IMG_W: usize = 800;
 pub const MAP_IMG_H: usize = 400;
 
+/// Размер `Image2` (временного разреза) из DFM: 800×201.
+pub const SECTION_IMG_W: usize = 800;
+pub const SECTION_IMG_H: usize = 201;
+
 #[derive(Debug, Clone)]
 pub struct Settings {
     /// Средняя скорость, м/с (Edit2 = 1500).
