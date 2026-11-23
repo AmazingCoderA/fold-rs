@@ -14,7 +14,7 @@
 
 use crate::grid::{build_map_native, profile_time_bounds, MapGrid};
 use crate::io::{parse, serialize};
-use crate::model::{Pick, Profile, Settings, MAP_HEIGHT_M, MAP_WIDTH_M};
+use crate::model::{Pick, Profile, Settings, MAP_HEIGHT_M, MAP_IMG_H, MAP_IMG_W, MAP_WIDTH_M};
 use egui::{Align2, Color32, FontFamily, FontId, Pos2, Rect, Sense, Stroke, TextureHandle};
 use std::sync::Arc;
 
@@ -308,15 +308,37 @@ impl FoldApp {
         let (min, max) = bounds(&g);
         let span = (max - min).max(1e-6);
         let theme = self.theme;
-        let mut img = egui::ColorImage::new([g.width, g.height], scale_color(0.0, theme));
-        for (i, &d) in g.data.iter().enumerate() {
-            if d.is_finite() {
-                img.pixels[i] = palette(((d - min) / span).clamp(0.0, 1.0), theme);
+
+        // Дословная растеризация 0x46641C: карта рисуется на Image1 (800x400)
+        // прямоугольниками 10/step пикселей с жёсткими границами. Порядок
+        // обхода i (X) -> j (Y) важен: поздние прямоугольники перекрывают
+        // ранние, как в Delphi Canvas.FillRect.
+        let mut img = egui::ColorImage::new([MAP_IMG_W, MAP_IMG_H], scale_color(0.0, theme));
+        let half = 10.0_f64 / self.settings.quality.clamp(0.1, 9.99);
+        let back = half.trunc() as i32;
+        let front = (2.0_f64 * half).trunc() as i32;
+        for gx in 0..g.width {
+            let sx = (gx * MAP_IMG_W / g.width) as i32;
+            for gy in 0..g.height {
+                let d = g.data[gy * g.width + gx];
+                if !d.is_finite() {
+                    continue;
+                }
+                let sy = MAP_IMG_H as i32 - (gy * MAP_IMG_H / g.height) as i32;
+                let color = palette(((d - min) / span).clamp(0.0, 1.0), theme);
+                // Delphi FillRect: right/bottom не включаются.
+                let x0 = (sx - back).max(0) as usize;
+                let x1 = (sx + front).min(MAP_IMG_W as i32) as usize;
+                let y0 = (sy - back).max(0) as usize;
+                let y1 = (sy + front).min(MAP_IMG_H as i32) as usize;
+                for y in y0..y1 {
+                    let row = y * MAP_IMG_W;
+                    img.pixels[row + x0..row + x1].fill(color);
+                }
             }
         }
         self.last_ms = t.elapsed().as_secs_f64() * 1000.0;
-        // Оригинал заливает прямоугольники с жёсткими границами 21 полосы —
-        // LINEAR здесь размывал бы карту и легенду.
+        // Текстура уже имеет пиксельное разрешение Image1, INTERP не нужен.
         match &mut self.texture {
             Some(tex) => tex.set(img, egui::TextureOptions::NEAREST),
             None => {
@@ -1195,14 +1217,14 @@ impl eframe::App for FoldApp {
                 let x = map.min.x + map.width() * i as f32 / 8.0;
                 ui.painter().line_segment(
                     [Pos2::new(x, map.min.y), Pos2::new(x, map.max.y)],
-                    Stroke::new(0.7_f32 * view.scale, Color32::from_gray(110)),
+                    Stroke::new(view.scale, Color32::from_gray(128)),
                 );
             }
             for i in 0..=10 {
                 let y = map.min.y + map.height() * i as f32 / 10.0;
                 ui.painter().line_segment(
                     [Pos2::new(map.min.x, y), Pos2::new(map.max.x, y)],
-                    Stroke::new(0.7_f32 * view.scale, Color32::from_gray(110)),
+                    Stroke::new(view.scale, Color32::from_gray(128)),
                 );
             }
             for (i, pr) in self.profiles.iter().enumerate() {
