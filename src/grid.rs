@@ -147,6 +147,15 @@ pub fn section_trace_count(profile: &Profile) -> usize {
     n.clamp(1, 100)
 }
 
+/// Время пика по вертикальной координате Image2 из `0x468780`:
+/// `t = t_min + Y/Height·(t_max−t_min)`. Ось времени в original направлена
+/// вниз — та же ориентация, что и у отсчётов в `0x465D68`.
+#[inline]
+pub fn section_time_from_y(y: f64, height: f64, bounds: (f64, f64)) -> f64 {
+    let k = (y / height).clamp(0.0, 1.0);
+    bounds.0 + k * (bounds.1 - bounds.0)
+}
+
 /// Общая выборка аналитической поверхности.
 ///
 /// `include_end` — публичная сетка (`build_map`) включает обе границы карты,
@@ -374,6 +383,17 @@ mod tests {
         assert_eq!(section_trace_count(&mk(199.0)), 1);
         assert_eq!(section_trace_count(&mk(3000.0)), 16);
         assert_eq!(section_trace_count(&mk(100_000.0)), 100);
+    }
+
+    #[test]
+    fn section_time_grows_downward() {
+        let bounds = (1.0, 3.0);
+        assert!((section_time_from_y(0.0, 200.0, bounds) - 1.0).abs() < 1e-12);
+        assert!((section_time_from_y(100.0, 200.0, bounds) - 2.0).abs() < 1e-12);
+        assert!((section_time_from_y(200.0, 200.0, bounds) - 3.0).abs() < 1e-12);
+        // Клик за пределами Image2 не должен ломать время.
+        assert_eq!(section_time_from_y(-10.0, 200.0, bounds), 1.0);
+        assert_eq!(section_time_from_y(300.0, 200.0, bounds), 3.0);
     }
 
     #[test]

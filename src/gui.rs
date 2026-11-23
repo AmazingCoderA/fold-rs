@@ -13,8 +13,8 @@
 //! системное, вне клиентской области), чтобы все кнопки были доступны.
 
 use crate::grid::{
-    build_map_native, horizon_depth, profile_time_bounds, section_trace_count, surface_theta,
-    MapGrid,
+    build_map_native, horizon_depth, profile_time_bounds, section_time_from_y, section_trace_count,
+    surface_theta, MapGrid,
 };
 use crate::io::{fmt_num, parse, serialize};
 use crate::model::{Pick, Profile, Settings, MAP_HEIGHT_M, MAP_IMG_H, MAP_IMG_W, MAP_WIDTH_M};
@@ -221,6 +221,9 @@ pub struct FoldApp {
     /// Фокус на предыдущем кадре: нужен, чтобы при уходе из поля показать
     /// фактически применённое (и ограниченное диапазоном) значение, а не «1» вместо 1000.
     last_focused: Option<egui::Id>,
+    /// DFM `Image2.OnMouseDown`: пик ставится в момент нажатия, а не на отпускании.
+    /// Флаг защищает от повторного добавления в следующих кадрах.
+    sec_pointer_down: bool,
 }
 
 impl FoldApp {
@@ -299,6 +302,7 @@ impl FoldApp {
                 origin: Pos2::ZERO,
             },
             last_focused: None,
+            sec_pointer_down: false,
         }
     }
 
@@ -580,7 +584,7 @@ fn scale_color(t: f32, theme: usize) -> Color32 {
 }
 
 /// Залитые чёрные виггл-лепестки (Ricker), как в original.
-fn wiggle(ui: &egui::Ui, view: View, cx: f32, sec: Rect, pick_time: f64, time_bounds: (f64, f64)) {
+fn wiggle(ui: &egui::Ui, view: View, cx: f32, sec: Rect, trace_time: f64, time_bounds: (f64, f64)) {
     const N: usize = 160;
     let scale = (sec.height() / 174.0).max(0.2);
     let amp = 20.0 * scale;
@@ -593,8 +597,8 @@ fn wiggle(ui: &egui::Ui, view: View, cx: f32, sec: Rect, pick_time: f64, time_bo
     for (k, pt) in pts.iter_mut().enumerate() {
         let fy = k as f32 / N as f32;
         let y = sec.min.y + fy * sec.height();
-        let t = t_max - f64::from(fy) * t_span;
-        let dt = (t - pick_time) * freq;
+        let t = t_min + f64::from(fy) * t_span;
+        let dt = (t - trace_time) * freq;
         let w = (1.0 - 2.0 * std::f64::consts::PI.powi(2) * dt * dt)
             * (-std::f64::consts::PI.powi(2) * dt * dt).exp();
         *pt = (y, cx + w as f32 * amp, w);
@@ -1492,11 +1496,6 @@ impl eframe::App for FoldApp {
             // кадре (drag по карте, ячейки таблицы, смена профиля) — иначе
             // разрез на один кадр отстаёт от карты и таблицы.
             self.refresh_time_bounds();
-            let picks: &[Pick] = self
-                .profiles
-                .get(self.selected)
-                .map(|p| p.picks.as_slice())
-                .unwrap_or(&[]);
             let sec = view.r(SEC.0, SEC.1, SEC.2, SEC.3);
             let tb = self.time_bounds;
             let t_span = (tb.1 - tb.0).max(1e-6);
@@ -1550,32 +1549,51 @@ impl eframe::App for FoldApp {
                     wiggle(ui, view, cx, sec, t, tb);
                 }
             }
+            // DFM `Image2.OnMouseDown`: пик ставится в момент нажатия. `clicked()`
+            // нужен только как fallback для очень быстрого клика, когда press и
+            // release попали в один кадр; флаг не даёт добавить пик дважды.
+            let sresp = ui.interact(sec, egui::Id::new("sec_area"), Sense::click_and_drag());
+            let sec_down = sresp.is_pointer_button_down_on();
+            let add_pick = (sec_down || sresp.clicked()) && !self.sec_pointer_down;
+            if add_pick {
+                if let Some(pnt) = sresp.interact_pointer_pos() {
+                    let trace = ((pnt.x - sec.min.x) / sec.width() * 11.0) as f64;
+                    // 0x468780: ось времени направлена вниз, как и в `0x465D68`.
+                    let time = section_time_from_y(
+                        f64::from(pnt.y - sec.min.y),
+                        f64::from(sec.height()),
+                        tb,
+                    );
+                    if self.profiles.is_empty() {
+                        self.add_profile(100.0, 2000.0, 3100.0, 2000.0);
+                    }
+                    if let Some(pr) = self.profiles.get_mut(self.selected) {
+                        pr.picks.push(Pick { trace, time });
+                        pr.picks.sort_by(|a, b| {
+                            a.trace
+                                .partial_cmp(&b.trace)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        });
+                        self.dirty = true;
+                        self.status = format!("Пик: трасса {:.1}, t {:.3} с", trace, time);
+                    }
+                }
+            }
+            self.sec_pointer_down = sec_down;
+
+            // Маркеры рисуем после вставки пика: новый пик виден в том же кадре.
+            let picks: &[Pick] = self
+                .profiles
+                .get(self.selected)
+                .map(|p| p.picks.as_slice())
+                .unwrap_or(&[]);
             for pk in picks {
                 let c = Pos2::new(
                     sec.min.x + (pk.trace / 11.0) as f32 * sec.width(),
-                    sec.max.y - ((pk.time - tb.0) / t_span).clamp(0.0, 1.0) as f32 * sec.height(),
+                    sec.min.y + ((pk.time - tb.0) / t_span).clamp(0.0, 1.0) as f32 * sec.height(),
                 );
                 ui.painter()
                     .circle_filled(c, 3.0 * view.scale, Color32::from_rgb(220, 70, 30));
-            }
-            let sresp = ui.interact(sec, egui::Id::new("sec_area"), Sense::click());
-            if sresp.clicked() {
-                let pnt = sresp.interact_pointer_pos().unwrap_or(sec.min);
-                let trace = ((pnt.x - sec.min.x) / sec.width() * 11.0) as f64;
-                let time = tb.0 + f64::from(1.0 - (pnt.y - sec.min.y) / sec.height()) * t_span;
-                if self.profiles.is_empty() {
-                    self.add_profile(100.0, 2000.0, 3100.0, 2000.0);
-                }
-                if let Some(pr) = self.profiles.get_mut(self.selected) {
-                    pr.picks.push(Pick { trace, time });
-                    pr.picks.sort_by(|a, b| {
-                        a.trace
-                            .partial_cmp(&b.trace)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    });
-                    self.dirty = true;
-                    self.status = format!("Пик: трасса {:.1}, t {:.3} с", trace, time);
-                }
             }
 
             // ── нижние подписи ────────────────────────────────────────────────

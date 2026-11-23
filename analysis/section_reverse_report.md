@@ -82,21 +82,29 @@ buffer is still ambiguous, so the GUI currently draws envelope traces from
 * `TabOrder`: Edit2=0, StringGrid=1, Edit1=2, Edit3=3, Memo1=4,
   Edit4=1, Edit5=2. The GUI expands the grid into four stops and adds a
   focus proxy for Memo1.
-* Pick labels from `0x468830..0x4688AB`: `t01`, `t02`, … with three decimals.
+* The pick handler at `0x468780` (the callgraph label `N1Click` is unreliable)
+  receives the mouse coordinates on the stack: `[ebp+8]=Y`, `[ebp+0xC]=X`.
+  It draws a 12×12 marker at `(X−6, Y−6)`, formats
+  `t = t_min + Y/Image2.Height·(t_max−t_min)` with three decimals, and appends
+  `t01`, `t02`, … to Memo1. The time axis therefore grows **downward**,
+  exactly as in the `0x465D68` sampler. The GUI had both the pick time and the
+  marker Y inverted; fixed.
 * Map↔Image1 transforms (`0x466198`, `0x4661F0`):
   `sx = trunc(x/8000 * 799)`, `sy = 399 - trunc(y/4000 * 399)`;
   inverse `x = sx/799*8000`, `y = (399-sy)/399*4000`.
   The profile overlay previously ignored the Y flip and disagreed with the
   texture rasterization; both now use the same transform.
-* `Image1.OnMouseDown=begin_prf` (`0x468140`) — in egui the equivalent is
+* `Image1.OnMouseDown=begin_prf` (`0x46805C`) — in egui the equivalent is
   `drag_started()`; `clicked()` is release-only and never fires for a decided
-  drag.
+  drag. `Image2.OnMouseDown=coora` rebuilds the section and refreshes the
+  coordinate cells; the click-to-add-pick handler is the separate
+  `0x468780` body above.
 
 ## 5. Correctness caveat
 
 The labels at `0x46805C` in the older callgraph report are unreliable: that
 body is byte-identical to `0x469514 EntryHandleClick`. The real
-`Image1.OnMouseDown` handler is `0x468140`; DFM event bindings were treated as
+`Image1.OnMouseDown` handler is `0x46805C`; DFM event bindings were treated as
 ground truth. FPU `dword ptr` operands were re-decoded as `f32`, and 80-bit
 constants as extended precision, instead of trusting the report's `dbl=`
 annotations.
