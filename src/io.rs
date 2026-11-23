@@ -25,13 +25,31 @@ pub fn parse(input: &str) -> Result<(Vec<Profile>, Settings), String> {
         let parts: Vec<&str> = line.split_whitespace().collect();
         match parts[0] {
             "v" if parts.len() == 2 => {
-                settings.velocity = parts[1].parse().map_err(|_| e(lineno))?
+                let v: f64 = parts[1].parse().map_err(|_| e(lineno))?;
+                // Те же границы, что и у Edit2 в 0x4674AC.
+                settings.velocity = if v.is_finite() {
+                    v.clamp(1000.0, 7000.0)
+                } else {
+                    settings.velocity
+                };
             }
             "q" if parts.len() == 2 => {
-                settings.quality = parts[1].parse().map_err(|_| e(lineno))?
+                let q: f64 = parts[1].parse().map_err(|_| e(lineno))?;
+                // 0x467540: Edit1 — float 0.1..9.99.
+                settings.quality = if q.is_finite() {
+                    q.clamp(0.1, 9.99)
+                } else {
+                    settings.quality
+                };
             }
             "angle" if parts.len() == 2 => {
-                settings.angle = parts[1].parse().map_err(|_| e(lineno))?
+                let a: f64 = parts[1].parse().map_err(|_| e(lineno))?;
+                // 0x4674AC: Edit4 — 0..360, затем −90° в формуле карты.
+                settings.angle = if a.is_finite() {
+                    a.clamp(0.0, 360.0)
+                } else {
+                    settings.angle
+                };
             }
             "profile" if parts.len() == 5 => {
                 if let Some(p) = cur.take() {
@@ -96,7 +114,8 @@ pub fn serialize(profiles: &[Profile], settings: &Settings) -> String {
     s
 }
 
-fn fmt_num(v: f64) -> String {
+/// Форматирование числа для готовой строки и полей ввода без потери дробной части.
+pub(crate) fn fmt_num(v: f64) -> String {
     if (v - v.round()).abs() < 1e-9 {
         format!("{:.0}", v)
     } else {
@@ -142,19 +161,32 @@ mod tests {
     #[test]
     fn parse_demo() {
         let (p, s) = parse(
-            "# comment\nv 1600\nq 90\nangle 30\nprofile 0 0 1000 0\npick 1 0.5\npick 10 0.6\nend\n",
+            "# comment\nv 1600\nq 9\nangle 30\nprofile 0 0 1000 0\npick 1 0.5\npick 10 0.6\nend\n",
         )
         .unwrap();
         assert_eq!(p.len(), 1);
         assert_eq!(p[0].picks.len(), 2);
         assert_eq!(s.velocity, 1600.0);
-        assert_eq!(s.quality, 90.0);
+        assert_eq!(s.quality, 9.0);
         assert_eq!(s.angle, 30.0);
     }
 
     #[test]
     fn bad_line() {
         assert!(parse("oops 1 2\n").is_err());
+    }
+
+    #[test]
+    fn imported_settings_use_original_clamps() {
+        let (_, s) = parse("v 2\nq 95\nangle 400\nend\n").unwrap();
+        assert_eq!(s.velocity, 1000.0);
+        assert_eq!(s.quality, 9.99);
+        assert_eq!(s.angle, 360.0);
+
+        let (_, s) = parse("v 9000\nq 0\nangle -10\nend\n").unwrap();
+        assert_eq!(s.velocity, 7000.0);
+        assert_eq!(s.quality, 0.1);
+        assert_eq!(s.angle, 0.0);
     }
 
     #[test]

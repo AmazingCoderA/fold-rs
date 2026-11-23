@@ -34,14 +34,11 @@ fn delphi_round(v: f64) -> f32 {
     v.trunc() as i64 as f32
 }
 
-/// Точный аналог `0x466250`.
-///
-/// `x`, `y` — координаты карты в метрах (`f32`, как в original),
-/// `theta` — угол в радианах. Возвращает глубину `H` в метрах.
-pub fn horizon_depth(x: f32, y: f32, theta: f64) -> f32 {
-    let ct = theta.cos();
-    let st = theta.sin();
-
+/// Внутренняя форма `0x466250` с уже вычисленными `cos(theta)`/`sin(theta)`.
+/// В сетке 301×150 (и особенно 1000×500) тригонометрия для каждой ячейки
+/// недопустимо дорога, поэтому `sample_grid` считает её один раз.
+#[inline]
+fn horizon_depth_ctst(x: f32, y: f32, ct: f64, st: f64) -> f32 {
     // 0x466260..0x4662D0 — поворот точки.
     let xr = delphi_round(ct * f64::from(x)) - delphi_round(st * f64::from(y));
     let yr = delphi_round(st * f64::from(x)) + delphi_round(ct * f64::from(y));
@@ -67,10 +64,87 @@ pub fn horizon_depth(x: f32, y: f32, theta: f64) -> f32 {
     250.0f32 * q + 2000.0f32
 }
 
+/// Точный аналог `0x466250` для одной точки.
+///
+/// `x`, `y` — координаты карты в метрах (`f32`, как в original),
+/// `theta` — угол в радианах. Возвращает глубину `H` в метрах.
+#[inline]
+pub fn horizon_depth(x: f32, y: f32, theta: f64) -> f32 {
+    horizon_depth_ctst(x, y, theta.cos(), theta.sin())
+}
+
 /// Угол поверхности из `0x46641C`: θ = (Edit4 − 90°) · π/180.
 #[inline]
-fn theta_rad(settings: &Settings) -> f64 {
+pub fn surface_theta(settings: &Settings) -> f64 {
     (settings.angle - 90.0) * std::f64::consts::PI / 180.0
+}
+
+#[inline]
+fn theta_rad(settings: &Settings) -> f64 {
+    surface_theta(settings)
+}
+
+/// Быстрый генератор Delphi из `0x402BC8` (`System.Random`).
+///
+/// ```text
+/// seed = seed * $08088405 + 1  (mod 2^32)
+/// r    = seed * 2^-32          (`[0x46A068]` = 2.3283064365386963e-10)
+/// ```
+/// Используется `0x466980` при синтезе отсчётов временного разреза.
+#[derive(Debug, Clone)]
+pub struct DelphiRandom {
+    seed: u32,
+}
+
+impl DelphiRandom {
+    #[inline]
+    pub fn new(seed: u32) -> Self {
+        Self { seed }
+    }
+
+    #[inline]
+    pub fn next_u32(&mut self) -> u32 {
+        self.seed = self.seed.wrapping_mul(0x0808_8405).wrapping_add(1);
+        self.seed
+    }
+
+    #[inline]
+    pub fn next_f64(&mut self) -> f64 {
+        f64::from(self.next_u32()) * (1.0 / 4_294_967_296.0)
+    }
+
+    /// Нормальное распределение из `0x423FF4` (Box–Muller):
+    /// `u = 2·Random−1`, `r = u1²+u2² < 1`,
+    /// `g = sqrt(−2·ln(r)/r)·u1`, результат `g·sigma + mean`.
+    pub fn normal(&mut self, sigma: f64, mean: f64) -> f64 {
+        loop {
+            let u1 = 2.0 * self.next_f64() - 1.0;
+            let u2 = 2.0 * self.next_f64() - 1.0;
+            let r = u1 * u1 + u2 * u2;
+            if r > 0.0 && r < 1.0 {
+                return (-2.0 * r.ln() / r).sqrt() * u1 * sigma + mean;
+            }
+        }
+    }
+}
+
+/// Сигма шума синтетического разреза из `0x423FF4` (ext80 при вызове).
+pub const SECTION_NOISE_SIGMA: f64 = 0.006;
+/// Сдвиг времени отсчёта из `0x467444` (ext80 = 0.004).
+pub const SECTION_TIME_SHIFT: f64 = 0.004;
+/// Число отсчётов на трассу из заголовка буфера `0x465C23` (`0x12C`).
+pub const SECTION_SAMPLES: usize = 300;
+
+/// Число трасс временного разреза из `0x466980`:
+/// `n = trunc(len / 200) + 1`, с поправкой `0x466AF7`, если последний шаг
+/// вылезает за длину профиля. Оригинал ограничивает буфер 100 трассами.
+pub fn section_trace_count(profile: &Profile) -> usize {
+    let len = profile.length();
+    let mut n = (len / 200.0).trunc() as usize + 1;
+    if n > 1 && (n - 1) as f64 * 200.0 >= len + 200.0 {
+        n -= 1;
+    }
+    n.clamp(1, 100)
 }
 
 /// Общая выборка аналитической поверхности.
@@ -81,6 +155,8 @@ fn theta_rad(settings: &Settings) -> f64 {
 fn sample_grid(w: usize, h: usize, settings: &Settings, include_end: bool) -> MapGrid {
     let mut data = vec![f32::NAN; w * h];
     let theta = theta_rad(settings);
+    let ct = theta.cos();
+    let st = theta.sin();
     let dx = if include_end {
         MAP_WIDTH_M / (w - 1) as f64
     } else {
@@ -96,7 +172,7 @@ fn sample_grid(w: usize, h: usize, settings: &Settings, include_end: bool) -> Ma
         let row = gy * w;
         for gx in 0..w {
             let x = (gx as f64 * dx) as f32;
-            data[row + gx] = horizon_depth(x, y, theta);
+            data[row + gx] = horizon_depth_ctst(x, y, ct, st);
         }
     }
     MapGrid {
@@ -144,14 +220,17 @@ pub fn profile_time_bounds(profile: &Profile, settings: &Settings) -> (f64, f64)
     let dx = profile.x1 - profile.x0;
     let dy = profile.y1 - profile.y0;
     let len = dx.hypot(dy);
-    let n = ((len / 200.0).trunc() as usize + 1).clamp(1, 10_000);
+    let n = section_trace_count(profile);
+    let step = settings.step.max(1.0);
     let mut min = f64::INFINITY;
     let mut max = f64::NEG_INFINITY;
     for i in 0..n {
-        let k = if n == 1 {
+        // 0x466980 шагает ровно по 200 м от начала профиля, а не делит
+        // отрезок на n−1 равных частей.
+        let k = if len <= 0.0 {
             0.0
         } else {
-            i as f64 / (n - 1) as f64
+            ((i as f64 * step) / len).min(1.0)
         };
         let x = (profile.x0 + k * dx) as f32;
         let y = (profile.y0 + k * dy) as f32;
@@ -164,9 +243,13 @@ pub fn profile_time_bounds(profile: &Profile, settings: &Settings) -> (f64, f64)
     if !min.is_finite() || !max.is_finite() {
         return (0.0, 1.0);
     }
+    // 0x46745C / 0x467468: Grafana-заголовок буфера сужает диапазон.
+    min += 0.084;
+    max -= 0.02;
     if max - min < 1e-6 {
-        min -= 0.05;
-        max += 0.05;
+        let mid = (min + max) * 0.5;
+        min = mid - 0.05;
+        max = mid + 0.05;
     }
     (min, max)
 }
@@ -240,15 +323,57 @@ mod tests {
             picks: Vec::new(),
         };
         let a = Settings::default();
+        // Небольшое изменение скорости: при слишком сильном уменьшении
+        // raw-диапазон становится меньше поправок и original включает
+        // fallback min=mid−0.05/max=mid+0.05.
+        let factor = 1.1;
         let b = Settings {
-            velocity: a.velocity * 2.0,
+            velocity: a.velocity * factor,
             ..a.clone()
         };
         let (amin, amax) = profile_time_bounds(&p, &a);
         let (bmin, bmax) = profile_time_bounds(&p, &b);
         assert!(amin.is_finite() && amax > amin);
-        assert!((bmin - amin * 0.5).abs() < 1e-6);
-        assert!((bmax - amax * 0.5).abs() < 1e-6);
+        // 0x46745C/0x467468 сужают диапазон на константы до сравнения:
+        // raw_min = amin − 0.084, raw_max = amax + 0.02. Рост V в `factor`
+        // раз делит raw-диапазон на `factor`, после чего поправки применяются
+        // снова.
+        assert!((bmin - ((amin - 0.084) / factor + 0.084)).abs() < 1e-6);
+        assert!((bmax - ((amax + 0.02) / factor - 0.02)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn delphi_random_matches_binary_lcg() {
+        let mut r = DelphiRandom::new(0);
+        // 1-й вызов: seed = 0*0x08088405+1 = 1 → 1*2^-32.
+        assert_eq!(r.next_u32(), 1);
+        assert!((r.next_f64() - 2.0f64.powi(-32) * 0x0808_8406 as f64).abs() < 1e-15);
+
+        // Повторяемость: одинаковое зерно даёт одинаковую нормальную-seq.
+        let mut a = DelphiRandom::new(12345);
+        let mut b = DelphiRandom::new(12345);
+        for _ in 0..32 {
+            let x = a.normal(SECTION_NOISE_SIGMA, SECTION_TIME_SHIFT);
+            let y = b.normal(SECTION_NOISE_SIGMA, SECTION_TIME_SHIFT);
+            assert_eq!(x.to_bits(), y.to_bits());
+        }
+    }
+
+    #[test]
+    fn section_trace_count_follows_original_step() {
+        let mk = |len: f64| Profile {
+            id: 0,
+            x0: 0.0,
+            y0: 0.0,
+            x1: len,
+            y1: 0.0,
+            picks: Vec::new(),
+        };
+        assert_eq!(section_trace_count(&mk(0.0)), 1);
+        assert_eq!(section_trace_count(&mk(200.0)), 2);
+        assert_eq!(section_trace_count(&mk(199.0)), 1);
+        assert_eq!(section_trace_count(&mk(3000.0)), 16);
+        assert_eq!(section_trace_count(&mk(100_000.0)), 100);
     }
 
     #[test]
