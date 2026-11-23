@@ -2,7 +2,7 @@
 # Maintainer: AmazingCoderA
 pkgname=fold-rs-git
 pkgver=0.1.0.r1.g0
-pkgrel=4
+pkgrel=1
 pkgdesc="Rust port of the 2007 Fold seismic structural-map program (CLI + GUI)"
 arch=('x86_64' 'aarch64')
 url="https://github.com/AmazingCoderA/fold-rs"

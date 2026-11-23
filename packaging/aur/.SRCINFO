@@ -1,7 +1,7 @@
 pkgbase = fold-rs-git
 	pkgdesc = Rust port of the 2007 Fold seismic structural-map program (CLI + GUI)
-	pkgver = 0.10.2.r0.g8716eba
-	pkgrel = 4
+	pkgver = 0.10.3.r0.ge9a0968
+	pkgrel = 1
 	url = https://github.com/AmazingCoderA/fold-rs
 	arch = x86_64
 	arch = aarch64
