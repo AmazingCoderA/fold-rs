@@ -143,9 +143,16 @@ egui shapes. Envelope/Ricker wiggles were removed.
   Edit4=1, Edit5=2. The GUI expands the grid into four stops and adds a
   focus proxy for Memo1.
 * The pick handler at `0x468780` (the callgraph label `N1Click` is unreliable)
-  receives `[ebp+8]=Y`, `[ebp+0xC]=X`. It draws a 12×12 marker at `(X−6, Y−6)`,
+  receives `[ebp+8]=Y`, `[ebp+0xC]=X`. It loads the 12×12, 4-bpp DIB resource
+  `HACHA` (`RVA 0x9AAB0`, `0x49AAB0`), makes white transparent, and draws it at
+  `(X−6, Y−6)`. Only bitmap rows 4–7 are red, so the visible mark is a
+  **12×4 horizontal red bar** at `[X−6, X+6) × [Y−2, Y+2)` — not a dot. It
   formats `t = t_min + Y/Image2.Height·(t_max−t_min)` with three decimals, and
   appends `t01`, `t02`, … to Memo1. Time grows **downward**.
+* `StringGrid1` (`0x467F66`, `0x467600`): column 0 is fixed/money-green and
+  holds the labels `Х1`, `Y1`, `Х2`, `Y2` (the `Х` is Cyrillic U+0425, cp1251
+  `0xD5`); column 1 holds editable values mapped row 0→X1, 1→Y1, 2→X2, 3→Y2.
+  X is clamped to `0..8000`, Y to `0..4000`, and invalid input becomes `0`.
 * Map↔Image1 transforms (`0x466198`, `0x4661F0`):
   `sx = trunc(x/8000 * 799)`, `sy = 399 - trunc(y/4000 * 399)`;
   inverse `x = sx/799*8000`, `y = (399-sy)/399*4000`.

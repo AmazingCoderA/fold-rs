@@ -39,6 +39,9 @@ const MEMO: (f32, f32, f32, f32) = (32.0, 320.0, 125.0, 305.0); // Memo1
 const BANDS: usize = 21;
 /// Четыре редактируемые ячейки `StringGrid1` (DFM: ColCount=2, RowCount=4).
 const GRID_IDS: [&str; 4] = ["grid_0", "grid_1", "grid_2", "grid_3"];
+/// `0x467F66..0x467FB0`: col0 — фиксированные подписи. `Х` — кириллический
+/// (`U+0425`, cp1251 `0xD5`), как в оригинале, не латинский `X`.
+const GRID_LABELS: [&str; 4] = ["Х1", "Y1", "Х2", "Y2"];
 /// TabOrder из DFM: Edit2(0) → StringGrid(1) → Edit1(2) → Edit3(3) →
 /// Memo1(4) → Edit4(1) → Edit5(2). Ячейки таблицы развёрнуты в четыре
 /// остановки, а `memo_field` — невидимая цель фокуса для Memo1.
@@ -471,24 +474,27 @@ impl FoldApp {
         ];
     }
 
-    /// Применить одну ячейку к профилю. При `restore` неверный текст вернуть
-    /// к числовому значению профиля (используется при потере фокуса/Enter).
+    /// Применить одну ячейку к профилю. При `restore` (потеря фокуса/Enter)
+    /// неверный текст заменяется на `0`, как в `0x467600`; пока пользователь
+    /// печатает, незавершённый ввод не трогается.
     fn commit_grid_cell(&mut self, idx: usize, restore: bool) {
-        let Ok(value) = self.grid_text[idx].trim().parse::<f64>() else {
-            if restore {
-                self.grid_text[idx] = self
-                    .profiles
-                    .get(self.selected)
-                    .map(|p| match idx {
-                        0 => format!("{:.0}", p.x0),
-                        1 => format!("{:.0}", p.y0),
-                        2 => format!("{:.0}", p.x1),
-                        _ => format!("{:.0}", p.y1),
-                    })
-                    .unwrap_or_default();
+        let mut value = match self.grid_text[idx].trim().parse::<f64>() {
+            Ok(v) => v,
+            Err(_) => {
+                // 0x467600: нечисловой ввод original превращает в min и пишет
+                // обратно в ячейку. Пока поле редактируется, не мешаем вводу.
+                if !restore {
+                    return;
+                }
+                self.grid_text[idx] = "0".into();
+                0.0
             }
-            return;
         };
+        let clamped = clamp_grid_value(idx, value);
+        if restore || (clamped - value).abs() > f64::EPSILON {
+            self.grid_text[idx] = format!("{:.0}", clamped);
+        }
+        value = clamped;
         if let Some(p) = self.profiles.get_mut(self.selected) {
             match idx {
                 0 => p.x0 = value,
@@ -885,6 +891,17 @@ fn grid_cell(
     .changed()
 }
 
+/// `0x467600`: X из `(col=1,row=0/2)` с лимитом 8000, Y из row 1/3 с лимитом 4000.
+#[inline]
+fn clamp_grid_value(idx: usize, value: f64) -> f64 {
+    let max = if idx.is_multiple_of(2) {
+        MAP_WIDTH_M
+    } else {
+        MAP_HEIGHT_M
+    };
+    value.clamp(0.0, max)
+}
+
 fn button(ui: &mut egui::Ui, view: View, rect: Rect, id: &'static str, text: &str) -> bool {
     let mut clicked = false;
     ui.push_id(id, |ui| {
@@ -1221,57 +1238,44 @@ impl eframe::App for FoldApp {
 
             // StringGrid1 из DFM: ColCount=2, RowCount=4, DefaultColWidth=60,
             // RowHeights=24, FixedColor=clMoneyGreen, FixedRows=0, Options=goEditing.
-            // FixedCols в DFM не переопределён ⇒ по умолчанию равен 1, поэтому
-            // money-green заливается первый столбец, а не первая строка.
+            // FixedCols в DFM не переопределён ⇒ по умолчанию равен 1: в original
+            // первом столбце подписи Х1/Y1/Х2/Y2, во втором — редактируемые
+            // значения X1/Y1/X2/Y2 (0x467F66 и 0x467600).
             let grid = view.r(GRID.0, GRID.1, GRID.2, GRID.3);
             let cell_w = 60.0 * view.scale;
             let row_h = 24.0 * view.scale;
             ui.painter().rect_filled(grid, 0.0, Color32::WHITE);
             for row in 0..4 {
                 let y = grid.min.y + row as f32 * row_h;
-                for col in 0..2 {
-                    let idx = row * 2 + col;
-                    if idx >= GRID_IDS.len() {
-                        continue;
-                    }
-                    let bg = if col == 0 {
-                        CL_MONEY_GREEN
-                    } else {
-                        Color32::WHITE
-                    };
-                    ui.painter().rect_filled(
-                        Rect::from_min_max(
-                            Pos2::new(grid.min.x + col as f32 * cell_w, y),
-                            Pos2::new(
-                                grid.min.x + (col + 1) as f32 * cell_w,
-                                (y + row_h).min(grid.max.y),
-                            ),
-                        ),
-                        0.0,
-                        bg,
-                    );
-                    let cell = Rect::from_min_max(
-                        Pos2::new(
-                            grid.min.x + col as f32 * cell_w + view.scale,
-                            y + view.scale,
-                        ),
-                        Pos2::new(
-                            grid.min.x + (col + 1) as f32 * cell_w - view.scale,
-                            y + row_h - view.scale,
-                        ),
-                    );
-                    let changed = grid_cell(
-                        ui,
-                        self.fonts_ok,
-                        view,
-                        cell,
-                        bg,
-                        &mut self.grid_text[idx],
-                        GRID_IDS[idx],
-                    );
-                    if changed {
-                        self.commit_grid_cell(idx, false);
-                    }
+                let label_cell = Rect::from_min_max(
+                    Pos2::new(grid.min.x, y),
+                    Pos2::new(grid.min.x + cell_w, (y + row_h).min(grid.max.y)),
+                );
+                ui.painter().rect_filled(label_cell, 0.0, CL_MONEY_GREEN);
+                ui.painter().text(
+                    Pos2::new(label_cell.min.x + 2.0 * view.scale, label_cell.center().y),
+                    Align2::LEFT_CENTER,
+                    GRID_LABELS[row],
+                    font_of(self.fonts_ok, Face::Bold, view.fs(13.0)),
+                    Color32::BLACK,
+                );
+                let cell = Rect::from_min_max(
+                    Pos2::new(grid.min.x + cell_w + view.scale, y + view.scale),
+                    Pos2::new(
+                        grid.min.x + 2.0 * cell_w - view.scale,
+                        y + row_h - view.scale,
+                    ),
+                );
+                if grid_cell(
+                    ui,
+                    self.fonts_ok,
+                    view,
+                    cell,
+                    Color32::WHITE,
+                    &mut self.grid_text[row],
+                    GRID_IDS[row],
+                ) {
+                    self.commit_grid_cell(row, false);
                 }
             }
             let line_w = view.scale.max(0.6);
@@ -1635,8 +1639,14 @@ impl eframe::App for FoldApp {
                     sec.min.x + (pk.trace / 11.0) as f32 * sec.width(),
                     sec.min.y + ((pk.time - tb.0) / t_span).clamp(0.0, 1.0) as f32 * sec.height(),
                 );
-                ui.painter()
-                    .circle_filled(c, 3.0 * view.scale, Color32::from_rgb(220, 70, 30));
+                // 0x468780 рисует 12×12 DIB `HACHA` с прозрачным белым.
+                // Видима только средняя полоса: X-6..X+6, Y-2..Y+2 — то есть
+                // горизонтальная красная черточка 12×4 в пикселях Image2.
+                let marker = Rect::from_min_size(
+                    Pos2::new(c.x - 6.0 * view.scale, c.y - 2.0 * view.scale),
+                    egui::vec2(12.0 * view.scale, 4.0 * view.scale),
+                );
+                ui.painter().rect_filled(marker, 0.0, Color32::RED);
             }
 
             // ── нижние подписи ────────────────────────────────────────────────
@@ -1843,6 +1853,15 @@ mod tests {
         // Легенда должна показывать те же 21 цветов, что и карта.
         assert_eq!(band_color(0, 0), palette(0.0, 0));
         assert_eq!(band_color(20, 0), palette(1.0, 0));
+    }
+
+    #[test]
+    fn grid_cell_values_use_original_x_y_limits() {
+        assert_eq!(clamp_grid_value(0, 9000.0), MAP_WIDTH_M);
+        assert_eq!(clamp_grid_value(2, -10.0), 0.0);
+        assert_eq!(clamp_grid_value(1, 9000.0), MAP_HEIGHT_M);
+        assert_eq!(clamp_grid_value(3, -10.0), 0.0);
+        assert_eq!(GRID_LABELS, ["Х1", "Y1", "Х2", "Y2"]);
     }
 
     #[test]
