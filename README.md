@@ -160,17 +160,19 @@ cargo build --release
 
 ### Android
 
-Нативный код считает карту, Kotlin-интерфейс рисует её и обрабатывает касания:
+Нативный код считает **те же буферы Image1/Image2, что и desktop GUI**, Kotlin только рисует готовые ARGB-bitmap и обрабатывает касания:
 
 ```bash
 cargo install cargo-ndk
 cargo ndk --manifest-path android-rs/Cargo.toml \
-  -t arm64-v8a -t armeabi-v7a -t x86_64 \
+  -t arm64-v8a -t armeabi-v7a -t x86_64 -t x86 \
   -o android/app/src/main/jniLibs build --release
-gradle -p android assembleDebug
+gradle -p android assembleRelease
 ```
 
-APK появится в `android/app/build/outputs/apk/debug/`. В CI это делает job `android`; готовый `fold-android-universal.apk` прикрепляется к каждому релизу вместе с `SHA256SUMS.txt`.
+APK появится в `android/app/build/outputs/apk/release/app-release.apk`. В CI это делает job `android`; готовый `fold-android-universal.apk` прикрепляется к каждому релизу вместе с `SHA256SUMS.txt`.
+
+Приложение теперь подписано **одним стабильным ключом** (`android/app/fold-release.jks`, alias `fold`), и `versionCode` выводится из тега (`v0.10.7` → `10007`), поэтому новый APK нормально встаёт поверх предыдущего. Старые сборки `assembleDebug` подписывались случайным debug-ключом каждого runner — их нужно удалить **один раз**, после чего обновления будут обычными. Кнопка **Обновить** открывает страницу последнего релиза.
 
 ### AUR (Arch Linux)
 

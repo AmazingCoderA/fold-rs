@@ -1853,6 +1853,17 @@ mod tests {
         // Легенда должна показывать те же 21 цветов, что и карта.
         assert_eq!(band_color(0, 0), palette(0.0, 0));
         assert_eq!(band_color(20, 0), palette(1.0, 0));
+        // Ядро и Android обязаны использовать ту же формулу 0x46641C.
+        for u in [0.0, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0] {
+            let core = crate::grid::map_color_classic(u);
+            let gui = palette(u, 0);
+            let rgba = gui.to_array();
+            assert_eq!(
+                [rgba[0], rgba[1], rgba[2]],
+                core,
+                "classic palette drift at u={u}"
+            );
+        }
     }
 
     #[test]

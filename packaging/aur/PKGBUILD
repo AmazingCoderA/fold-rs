@@ -14,7 +14,11 @@ sha256sums=('SKIP')
 
 pkgver() {
   cd "$srcdir/fold-rs"
-  git describe --long --tags 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g' || printf '0.1.0.r%s.g%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
+  # На точном теге версия детерминирована и не зависит от хэша коммита —
+  # тогда .SRCINFO в архиве релиза совпадает с тем, что соберёт AUR.
+  git describe --tags --exact-match 2>/dev/null | sed 's/^v//' ||
+    git describe --long --tags 2>/dev/null | sed 's/^v//;s/\([^-]*-g\)/r\1/;s/-/./g' ||
+    printf '0.1.0.r%s.g%s' "$(git rev-list --count HEAD)" "$(git rev-parse --short HEAD)"
 }
 
 build() {

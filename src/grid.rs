@@ -139,6 +139,43 @@ pub const SECTION_NOISE_SIGMA_YX: f64 = 0.002;
 /// Расширение диапазона времени из `0x46745C` / `0x467468`.
 pub const SECTION_PAD_MIN: f64 = 0.02;
 pub const SECTION_PAD_MAX: f64 = 0.084;
+/// Число полос палитрыoriginal: `0x46641C` сравнивает с `span/21`.
+pub const MAP_BANDS: usize = 21;
+
+/// «Классика» — точная палитра `0x46641C`. Вынесена в ядро, чтобы GUI и
+/// Android использовали одну и ту же формулу без дублирования.
+const CLASSIC_STOPS: [(f32, [u8; 3]); 5] = [
+    (0.00, [65, 65, 205]),
+    (0.25, [65, 205, 205]),
+    (0.50, [65, 205, 65]),
+    (0.75, [205, 205, 65]),
+    (1.00, [205, 65, 65]),
+];
+
+/// Цвет одной полосы палитры «Классика» для `u in 0..=1`.
+///
+/// Полоса выбирается `round(u·21)`, как в `0x46641C`; цвет внутри полосы
+/// интерполируется по stops и округляется по правилам Delphi/Rust.
+pub fn map_color_classic(u: f32) -> [u8; 3] {
+    let u = if u.is_finite() {
+        u.clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let band = ((u * MAP_BANDS as f32 + 0.5) as usize).min(MAP_BANDS - 1);
+    let t = band as f32 / MAP_BANDS as f32;
+    for w in CLASSIC_STOPS.windows(2) {
+        if t <= w[1].0 {
+            let k = (t - w[0].0) / (w[1].0 - w[0].0);
+            return [0, 1, 2].map(|i| {
+                (f32::from(w[0].1[i]) + (f32::from(w[1].1[i]) - f32::from(w[0].1[i])) * k).round()
+                    as u8
+            });
+        }
+    }
+    CLASSIC_STOPS[CLASSIC_STOPS.len() - 1].1
+}
+
 /// Число отсчётов на трассу из заголовка буфера `0x465C23` (`0x12C`).
 pub const SECTION_SAMPLES: usize = 300;
 /// Шаг профиля в метрах (`0x46742C`).
@@ -387,6 +424,14 @@ mod tests {
     fn delphi_round_truncates_toward_zero() {
         assert_eq!(delphi_round(2.9), 2.0);
         assert_eq!(delphi_round(-2.9), -2.0);
+    }
+
+    #[test]
+    fn classic_palette_matches_dfm_band_formula() {
+        // round(u·21) на upper edge даёт полосу 20, а не 21: t=20/21.
+        assert_eq!(map_color_classic(0.0), [65, 65, 205]);
+        assert_eq!(map_color_classic(1.0), [205, 92, 65]);
+        assert_eq!(map_color_classic(f32::NAN), [65, 65, 205]);
     }
 
     #[test]

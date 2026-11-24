@@ -3,6 +3,15 @@ plugins {
     id 'org.jetbrains.kotlin.android' version '2.0.20'
 }
 
+// Стабильная подпись — главное условие нормального обновления APK поверх
+// предыдущей версии. Debug-сборки тоже подписываются этим же ключом, чтобы
+// локальная установка не ломала обновление с GitHub Releases.
+def stableStorePassword = System.getenv('FOLD_KEYSTORE_PASSWORD') ?: 'fold2026'
+def stableKeyAlias = System.getenv('FOLD_KEYSTORE_ALIAS') ?: 'fold'
+def stableKeyPassword = System.getenv('FOLD_KEYSTORE_KEY_PASSWORD') ?: 'fold2026'
+def appVersionName = System.getenv('FOLD_VERSION_NAME') ?: '0.10.7'
+def appVersionCode = (System.getenv('FOLD_VERSION_CODE') ?: '10007').toInteger()
+
 android {
     namespace 'com.fold.app'
     compileSdk 35
@@ -11,12 +20,25 @@ android {
         applicationId 'com.fold.app'
         minSdk 24
         targetSdk 35
-        versionCode 1
-        versionName '0.1.0'
+        versionCode appVersionCode
+        versionName appVersionName
+    }
+
+    signingConfigs {
+        stable {
+            storeFile file('fold-release.jks')
+            storePassword stableStorePassword
+            keyAlias stableKeyAlias
+            keyPassword stableKeyPassword
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig signingConfigs.stable
+        }
         release {
+            signingConfig signingConfigs.stable
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
         }
