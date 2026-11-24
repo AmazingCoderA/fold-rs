@@ -80,9 +80,9 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, dp(6), 0, dp(2))
         }
-        val vField = numberField("1500") { view.setVelocity(it.toFloatOrNull() ?: 1500f) }
-        val qField = numberField("3") { view.setQuality(it.toFloatOrNull() ?: 3f) }
-        val aField = numberField("0") { view.setAngle(it.toFloatOrNull() ?: 0f) }
+        val vField = numberField("1500") { view.updateVelocity(it.toFloatOrNull() ?: 1500f) }
+        val qField = numberField("3") { view.updateQuality(it.toFloatOrNull() ?: 3f) }
+        val aField = numberField("0") { view.updateAngle(it.toFloatOrNull() ?: 0f) }
         params.addView(labeled("V", vField))
         params.addView(labeled("Качество", qField))
         params.addView(labeled("Угол", aField))

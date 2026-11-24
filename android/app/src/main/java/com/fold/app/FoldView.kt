@@ -72,17 +72,17 @@ class FoldView @JvmOverloads constructor(
         color = Color.RED; style = Paint.Style.FILL
     }
 
-    fun setVelocity(value: Float) {
+    fun updateVelocity(value: Float) {
         velocity = value.coerceIn(1000f, 7000f)
         rebuild()
     }
 
-    fun setQuality(value: Float) {
+    fun updateQuality(value: Float) {
         quality = value.coerceIn(0.1f, 9.99f)
         rebuild()
     }
 
-    fun setAngle(value: Float) {
+    fun updateAngle(value: Float) {
         angle = value.coerceIn(0f, 360f)
         rebuild()
     }
