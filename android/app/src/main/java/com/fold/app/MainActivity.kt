@@ -178,7 +178,7 @@ class MainActivity : Activity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val info = packageManager.getPackageInfo(
                 packageName,
-                android.content.pm.PackageInfo.PackageInfoFlags.of(0)
+                android.content.pm.PackageManager.PackageInfoFlags.of(0)
             )
             info.versionName ?: "?"
         } else {

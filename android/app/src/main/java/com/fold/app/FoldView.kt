@@ -323,7 +323,7 @@ class FoldView @JvmOverloads constructor(
                     val trace = ((x - sr.left) / sr.width() * SECTION_PICK_TRACES)
                         .coerceIn(0.0, SECTION_PICK_TRACES - 1.0)
                     val py = ((y - sr.top) / sr.height() * SECTION_H)
-                        .coerceIn(0.0, SECTION_H.toDouble())
+                        .coerceIn(0f, SECTION_H.toFloat())
                     val time = sectionTMin + (py / SECTION_H) * (sectionTMax - sectionTMin)
                     if (profiles.isEmpty()) {
                         profiles.add(FProfile(100.0, 2000.0, 3100.0, 2000.0))
